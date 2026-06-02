@@ -1,0 +1,11 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/).
+
+## [Unreleased]
+
+### Added
+
+- Initial scaffold for the IADS Agentic SQL Agent (Team 4, IADS Hackathon 2026).

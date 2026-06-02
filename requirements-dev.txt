@@ -1,0 +1,11 @@
+# Dev dependencies — unpinned scaffold.
+# Install runtime deps first: pip install -r requirements.txt
+
+-r requirements.txt
+
+pytest>=8.0
+pytest-asyncio>=0.23
+pytest-cov>=4.1
+ruff>=0.3
+mypy>=1.9
+pip-tools>=7.4

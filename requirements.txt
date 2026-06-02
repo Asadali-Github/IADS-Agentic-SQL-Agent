@@ -1,0 +1,16 @@
+# Runtime dependencies — unpinned scaffold.
+# pyproject.toml is the canonical source. Regenerate a pinned requirements.lock during the hackathon with:
+#   pip-compile pyproject.toml -o requirements.lock
+
+pydantic>=2.6
+pydantic-settings>=2.2
+python-dotenv>=1.0
+oci>=2.120
+oracledb>=2.1
+fastapi>=0.110
+uvicorn[standard]>=0.27
+streamlit>=1.32
+httpx>=0.27
+numpy>=1.26
+structlog>=24.1
+sqlglot>=23.0

@@ -1,0 +1,13 @@
+{
+  "_comment": "Hardcoded fallback results for live demo. Populate during dry-run rehearsal. Key = normalised question string.",
+  "_schema": {
+    "question_text": {
+      "sql": "SELECT ... (the SQL we expect the agent to generate)",
+      "columns": ["col_a", "col_b"],
+      "rows": [["value", 123]],
+      "summary": "Natural-language one-liner the summariser would have produced.",
+      "captured_at": "ISO-8601 timestamp from rehearsal run"
+    }
+  },
+  "queries": {}
+}
