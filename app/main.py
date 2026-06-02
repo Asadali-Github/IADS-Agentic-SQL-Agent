@@ -24,6 +24,9 @@ def main() -> None:
     print("\n=== SQL Generation Prompt ===")
     print(response["sql_generation_prompt"])
 
+    print("\n=== Generated SQL ===")
+    print(json.dumps(response["generated_sql"], indent=2))
+
     print("\n=== Pipeline Stage ===")
     print(response["pipeline_stage"])
 
