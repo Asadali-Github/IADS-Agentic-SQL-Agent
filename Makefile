@@ -1,4 +1,4 @@
-.PHONY: help install dev test lint format typecheck run-api run-ui benchmark seed-db embed-schema docker-build docker-up docker-down clean
+.PHONY: help install dev test lint format typecheck run-api run-ui benchmark preprocess seed-db refresh-schema-descriptions embed-schema docker-build docker-up docker-down clean
 
 help:  ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
@@ -31,8 +31,14 @@ run-ui:  ## Start Streamlit on port 8501
 benchmark:  ## Run benchmark against the golden query set
 	python scripts/run_benchmark.py
 
-seed-db:  ## Seed the Autonomous DB with demo data
+preprocess:  ## Clean raw data in data/raw/ into seed CSVs in db/seed/
+	python scripts/preprocess_raw_data.py
+
+seed-db:  ## Apply db/ddl + load db/seed into the Autonomous DB
 	python scripts/seed_database.py
+
+refresh-schema-descriptions:  ## Refresh db/schema_descriptions.yaml from live DDL
+	python scripts/build_schema_descriptions.py
 
 embed-schema:  ## Embed schema descriptions into the vector store
 	python scripts/embed_schema.py

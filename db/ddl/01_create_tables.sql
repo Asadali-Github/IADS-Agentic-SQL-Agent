@@ -1,0 +1,34 @@
+-- Schema for the IADS SQL Agent demo dataset.
+-- Status: scaffold — fill in during the hackathon.
+-- Owner: Abdul Qayyum + Asad
+--
+-- Style guide:
+--   * snake_case identifiers
+--   * PRIMARY KEYs always declared
+--   * FOREIGN KEYs always declared (the LLM relies on relationships for JOINs)
+--   * Each column gets a COMMENT clause matching db/schema_descriptions.yaml
+--   * Indexes on every column that appears in a likely WHERE clause
+--
+-- Update the ER diagram in docs/diagrams/er_diagram.md whenever this file changes.
+
+-- ============================================================================
+-- TODO: replace with the real demo schema.
+-- Example below is illustrative only.
+-- ============================================================================
+
+-- CREATE TABLE customers (
+--     customer_id     NUMBER          PRIMARY KEY,
+--     full_name       VARCHAR2(200)   NOT NULL,
+--     country_code    CHAR(2)         NOT NULL,
+--     created_at      TIMESTAMP       NOT NULL
+-- );
+-- COMMENT ON COLUMN customers.country_code IS 'ISO 3166-1 alpha-2 country code (e.g. GB, US).';
+
+-- CREATE TABLE orders (
+--     order_id        NUMBER          PRIMARY KEY,
+--     customer_id     NUMBER          NOT NULL REFERENCES customers(customer_id),
+--     order_date      DATE            NOT NULL,
+--     total_gbp       NUMBER(12, 2)   NOT NULL
+-- );
+-- CREATE INDEX idx_orders_customer ON orders(customer_id);
+-- CREATE INDEX idx_orders_date     ON orders(order_date);

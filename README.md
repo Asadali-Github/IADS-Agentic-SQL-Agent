@@ -80,15 +80,16 @@ scripts/            Seed DB, embed schema, run benchmark
 
 ## Team
 
-| Member | Role |
-|---|---|
-| Omar Khalel | Orchestrator + Critic + architecture |
-| Hassan Mohamed | Database layer |
-| Marthi Srivatsav | Schema retrieval (RAG) |
-| Abdulqoyum Ahmed | Vector store + embeddings |
-| Asad Ali | SQL Generator + Validator + Summariser + prompts |
-| Mehdi Boussoura | FastAPI + Streamlit |
-| Aneesh Bhojwani | Tests, README, slide deck |
+| Member | Background | Slice |
+|---|---|---|
+| Omar | AI | Orchestration, critic, model routing |
+| Hasan | AI | Planner, SQL generator, LLM client + prompts |
+| Zayad | AI | Retrieval / RAG (schema, few-shot, row fallback) |
+| Asad | Data Science (MSc) | Summariser, evaluation harness, golden datasets |
+| Mehdi | CS (undergrad) | FastAPI service, Streamlit UI, deployment |
+| Abdul Qayyum | CS (undergrad) | Database, vector store, safety/obfuscation |
+
+Full file-level ownership and Day 1/2/3 plan: [`docs/OWNERSHIP.md`](docs/OWNERSHIP.md).
 
 ## Documents
 
