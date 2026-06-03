@@ -62,11 +62,22 @@ def test_generate_uses_dbms_cloud_ai_showsql() -> None:
 def test_generate_skips_when_profile_is_missing() -> None:
     generator = OracleSelectAISQLGenerator(profile_name="", connection_factory=lambda: None)
 
-    result = generator.generate("What were total sales by product category?")
+    result = generator.generate("Tell me something unsupported")
 
     assert result["sql"] is None
     assert result["error"] is None
     assert "SELECT_AI_PROFILE" in result["reasoning"]
+
+
+def test_generate_uses_known_fallback_when_profile_is_missing() -> None:
+    generator = OracleSelectAISQLGenerator(profile_name="", connection_factory=lambda: None)
+
+    result = generator.generate("What were total sales by product category?")
+
+    assert result["provider"] == "local_fallback"
+    assert result["sql"] is not None
+    assert '"ADMIN"."PRODUCT_SALES_DATASET_FINAL"' in result["sql"]
+    assert "SELECT_AI_PROFILE is not set" in result["reasoning"]
 
 
 def test_generate_uses_known_fallback_when_select_ai_is_unavailable() -> None:

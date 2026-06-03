@@ -82,7 +82,7 @@ def test_summarise_falls_back_when_profile_is_missing() -> None:
     )
 
     assert result["provider"] == "local"
-    assert "top row is PRODUCT_CATEGORY: Electronics" in result["answer"]
+    assert "leading row is product category: Electronics" in result["answer"]
     assert result["error"] == "SELECT_AI_PROFILE is not set."
 
 
@@ -102,4 +102,4 @@ def test_summarise_accepts_fallback_success_results() -> None:
     )
 
     assert result["provider"] == "local"
-    assert "top row is PRODUCT_CATEGORY: Electronics" in result["answer"]
+    assert "leading row is product category: Electronics" in result["answer"]

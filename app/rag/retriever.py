@@ -34,6 +34,8 @@ class OracleRAGRetriever:
         self.connection_factory = connection_factory or connect_adb
         self.embedding_client = embedding_client
         self.table_name = table_name
+        self.last_retrieval_provider: str | None = None
+        self.last_retrieval_error: str | None = None
 
         self.seed_error: str | None = None
         should_seed = auto_seed if auto_seed is not None else self._auto_seed_enabled()
@@ -55,16 +57,25 @@ class OracleRAGRetriever:
 
     def retrieve(self, user_question: str) -> list[dict]:
         """Return the most relevant documents for the user question."""
+        self.last_retrieval_provider = None
+        self.last_retrieval_error = None
         try:
             query_embedding = self._embedding_client().embed_query(user_question)
             scored_documents = self._search_oracle_vector(query_embedding)
-        except Exception:
+        except Exception as exc:
+            self.last_retrieval_error = str(exc)
             scored_documents = []
 
         if scored_documents:
-            return [self._without_score(document) for document in scored_documents]
+            self.last_retrieval_provider = "oracle_vector"
+            return self._with_required_schema_context(
+                [self._without_score(document) for document in scored_documents]
+            )
 
-        return self._local_search(extract_search_terms(user_question))
+        self.last_retrieval_provider = "local_keyword_fallback"
+        return self._with_required_schema_context(
+            self._local_search(extract_search_terms(user_question))
+        )
 
     def _search_oracle_vector(self, query_embedding: list[float]) -> list[dict]:
         try:
@@ -77,7 +88,8 @@ class OracleRAGRetriever:
                     },
                 )
                 rows = cursor.fetchall()
-        except Exception:
+        except Exception as exc:
+            self.last_retrieval_error = str(exc)
             return []
 
         return [
@@ -231,6 +243,26 @@ class OracleRAGRetriever:
             "type": document["type"],
             "content": document["content"],
         }
+
+    def _with_required_schema_context(self, documents: list[dict]) -> list[dict]:
+        if not documents:
+            return documents
+
+        if any(document["type"] == "table_schema" for document in documents):
+            return documents
+
+        table_schema = next(
+            (document for document in self.documents if document["type"] == "table_schema"),
+            None,
+        )
+        if not table_schema:
+            return documents
+
+        schema_document = self._without_score(table_schema)
+        if len(documents) < self.top_k:
+            return [schema_document, *documents]
+
+        return [schema_document, *documents[: self.top_k - 1]]
 
 
 KeywordRetriever = OracleRAGRetriever

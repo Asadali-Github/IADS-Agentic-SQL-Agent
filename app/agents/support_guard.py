@@ -5,6 +5,39 @@ from __future__ import annotations
 from app.rag.embeddings import build_search_text, extract_search_terms
 
 MIN_MATCHED_TERMS = 1
+UNSAFE_INTENT_TERMS = {
+    "alter",
+    "create",
+    "delete",
+    "drop",
+    "insert",
+    "merge",
+    "replace",
+    "revoke",
+    "truncate",
+    "update",
+}
+
+
+def assess_question_intent_safety(user_question: str) -> dict:
+    """Block natural-language requests that ask for data mutation."""
+    terms = set(extract_search_terms(user_question))
+    matched_terms = sorted(terms.intersection(UNSAFE_INTENT_TERMS))
+    if not matched_terms:
+        return _result(
+            is_supported=True,
+            reason="Question intent is read-only.",
+            matched_terms=[],
+        )
+
+    return _result(
+        is_supported=False,
+        reason=(
+            "Only read-only analytical questions are supported. "
+            f"Blocked unsafe intent: {', '.join(matched_terms)}."
+        ),
+        matched_terms=matched_terms,
+    )
 
 
 def assess_question_support(user_question: str, retrieved_documents: list[dict]) -> dict:
