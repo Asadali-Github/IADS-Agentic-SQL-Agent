@@ -27,6 +27,12 @@ def main() -> None:
     print("\n=== Generated SQL ===")
     print(json.dumps(response["generated_sql"], indent=2))
 
+    print("\n=== SQL Validation ===")
+    print(json.dumps(response["validation_result"], indent=2))
+
+    print("\n=== Oracle Execution Result ===")
+    print(json.dumps(response["execution_result"], indent=2))
+
     print("\n=== Pipeline Stage ===")
     print(response["pipeline_stage"])
 

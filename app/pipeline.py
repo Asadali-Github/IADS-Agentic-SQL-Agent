@@ -25,11 +25,15 @@ import json
 import os
 import re
 import sys
+import time
 from difflib import SequenceMatcher
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
+
+from dotenv import load_dotenv
 
 _ROOT = Path(__file__).resolve().parents[1]
+load_dotenv(_ROOT / ".env")
 for _p in (str(_ROOT), str(_ROOT / "src")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
@@ -171,10 +175,37 @@ class FullPipeline:
         self._executor = executor  # injected; defaults to LocalDB lazily
         self._retriever = None
         self._history: dict[str, list[str]] = {}  # session_id -> prior questions (multi-turn)
+        self._last_results: dict[str, dict[str, Any]] = {}
 
-    def _execute(self, sql: str) -> ExecutionResult:
+    def _execute(self, sql: str, provider: str | None = None) -> ExecutionResult:
         if self._executor is not None:
             return self._executor.execute(sql)
+
+        if provider == "oracle_select_ai" and os.getenv("ADB_DSN"):
+            started = time.perf_counter()
+            try:
+                from app.sql.executor import OracleSQLExecutor
+
+                result = OracleSQLExecutor().execute(sql)
+            except Exception as exc:  # noqa: BLE001
+                return ExecutionResult.failure(f"Oracle execution failed: {exc}")
+
+            latency_ms = (time.perf_counter() - started) * 1000
+            columns = result.get("columns", [])
+            rows_as_dicts = result.get("rows", [])
+            rows = [
+                [row.get(column) for column in columns]
+                for row in rows_as_dicts
+            ]
+            return ExecutionResult(
+                columns=columns,
+                rows=rows,
+                row_count=result.get("row_count", len(rows)),
+                success=bool(result.get("success")),
+                error=result.get("error"),
+                latency_ms=latency_ms,
+            )
+
         from evaluation.local_db import get_local_db
 
         return get_local_db().execute(sql)
@@ -199,6 +230,15 @@ class FullPipeline:
              "profit": "profit", "margin": "profit margin", "units": "units",
              "quantity": "units", "orders": "orders"}
     _TRIGGER = re.compile(r"^\s*(and|what about|how about|now|also|then|by|for|just)\b", re.I)
+    _ROW_REF = re.compile(
+        r"\b(that|it|that one|the first|first|top|highest|largest|biggest|best|"
+        r"the last|last|bottom|lowest|smallest|worst|second|third)\b",
+        re.I,
+    )
+    _DIRECT_RESULT_Q = re.compile(
+        r"\b(which|what|how much|how many|show|tell me|give me|compare)\b",
+        re.I,
+    )
 
     def _resolve_followup(self, question: str, session_id: Optional[str]) -> str:
         """Rewrite a short follow-up into a standalone question using the last turn.
@@ -233,11 +273,221 @@ class FullPipeline:
                 break
         return rewritten
 
+    def _selected_memory_row(self, question: str, memory: dict[str, Any]) -> dict[str, Any] | None:
+        rows = memory.get("rows") or []
+        if not rows:
+            return None
+
+        low = question.lower()
+        if re.search(r"\b(second|2nd)\b", low) and len(rows) >= 2:
+            return rows[1]
+        if re.search(r"\b(third|3rd)\b", low) and len(rows) >= 3:
+            return rows[2]
+        if re.search(r"\b(last|bottom|lowest|smallest|worst)\b", low):
+            return rows[-1]
+
+        mentioned = self._find_row_by_mentioned_value(question, rows)
+        if mentioned is not None:
+            return mentioned
+
+        return rows[0]
+
+    def _find_row_by_mentioned_value(
+        self,
+        question: str,
+        rows: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        q_norm = _norm(question)
+        for row in rows:
+            for value in row.values():
+                if isinstance(value, str) and value and _norm(value) in q_norm:
+                    return row
+        return None
+
+    def _dimension_column(self, row: dict[str, Any]) -> str | None:
+        preferred = (
+            "category",
+            "product",
+            "region",
+            "country",
+            "state",
+            "city",
+            "customer",
+            "name",
+        )
+        for column, value in row.items():
+            name = column.lower()
+            if isinstance(value, str) and any(token in name for token in preferred):
+                return column
+        for column, value in row.items():
+            if isinstance(value, str):
+                return column
+        return next(iter(row), None)
+
+    def _numeric_columns(self, row: dict[str, Any]) -> list[str]:
+        return [
+            column
+            for column, value in row.items()
+            if isinstance(value, (int, float)) and not isinstance(value, bool)
+        ]
+
+    def _business_dimension_name(self, column: str) -> str:
+        name = column.lower().replace("total_", "").replace("_", " ")
+        if "category" in name:
+            return "category"
+        if "product" in name:
+            return "product"
+        if "region" in name:
+            return "region"
+        if "country" in name:
+            return "country"
+        if "state" in name:
+            return "state"
+        if "city" in name:
+            return "city"
+        if "customer" in name:
+            return "customer"
+        return name
+
+    def _requested_measure(self, question: str) -> str | None:
+        low = question.lower()
+        for key, canon in self._MEAS.items():
+            if re.search(rf"\b{re.escape(key)}\b", low):
+                return canon
+        return None
+
+    def _answer_from_memory(
+        self,
+        question: str,
+        session_id: Optional[str],
+    ) -> dict[str, Any] | None:
+        if not session_id:
+            return None
+        memory = self._last_results.get(session_id)
+        if not memory or not memory.get("rows"):
+            return None
+
+        low = question.lower()
+        if not (self._DIRECT_RESULT_Q.search(question) or self._ROW_REF.search(question)):
+            return None
+
+        row = self._selected_memory_row(question, memory)
+        if not row:
+            return None
+
+        dimension_column = self._dimension_column(row)
+        numeric_columns = self._numeric_columns(row)
+        if not dimension_column and not numeric_columns:
+            return None
+
+        requested_measure = self._requested_measure(question)
+        measure_column = None
+        if requested_measure:
+            measure_column = next(
+                (
+                    column
+                    for column in numeric_columns
+                    if requested_measure.replace(" ", "_") in column.lower()
+                    or requested_measure.split()[0] in column.lower()
+                ),
+                None,
+            )
+            if measure_column is None:
+                return None
+        measure_column = measure_column or (numeric_columns[0] if numeric_columns else None)
+
+        if not measure_column:
+            return None
+
+        dimension_value = row.get(dimension_column) if dimension_column else None
+        measure_value = row.get(measure_column)
+        if dimension_value is None:
+            answer = f"{measure_column} was {measure_value:,} in the previous result."
+        else:
+            answer = f"{dimension_value} had {measure_column} of {measure_value:,} in the previous result."
+
+        if re.search(r"\b(all|table|rows|previous result|last result|same data)\b", low):
+            rows = memory["rows"]
+        else:
+            rows = [row]
+
+        return {
+            "question": question,
+            "answer": answer,
+            "rows": rows,
+            "columns": list(rows[0].keys()) if rows else [],
+            "sql": memory.get("sql", ""),
+            "explanation": "Answered from the previous result set in this conversation.",
+            "explanation_bullets": ["Used the rows returned by the previous question."],
+            "insights": [],
+            "chart": None,
+            "tables_used": memory.get("tables_used", []),
+            "confidence": 0.95,
+            "clarification": None,
+            "approximate_match": False,
+            "provider": "conversation_memory",
+            "retrieved_doc_ids": [],
+            "latency_ms": 0.0,
+            "error": None,
+            "session_id": session_id,
+        }
+
+    def _rewrite_with_result_memory(self, question: str, session_id: Optional[str]) -> str:
+        if not session_id:
+            return question
+        memory = self._last_results.get(session_id)
+        if not memory or not memory.get("rows"):
+            return question
+        if not self._ROW_REF.search(question):
+            return question
+
+        measure = self._requested_measure(question)
+        if not measure:
+            return question
+
+        row = self._selected_memory_row(question, memory)
+        if not row:
+            return question
+
+        dimension_column = self._dimension_column(row)
+        if not dimension_column:
+            return question
+
+        dimension_value = row.get(dimension_column)
+        if not isinstance(dimension_value, str) or not dimension_value:
+            return question
+
+        dimension_name = self._business_dimension_name(dimension_column)
+        return f"What is total {measure} for {dimension_name} {dimension_value}?"
+
+    def _remember_result(
+        self,
+        session_id: Optional[str],
+        question: str,
+        sql: str,
+        rows: list[dict[str, Any]],
+        response: dict[str, Any],
+    ) -> None:
+        if not session_id or not rows:
+            return
+        self._last_results[session_id] = {
+            "question": question,
+            "sql": sql,
+            "rows": rows,
+            "answer": response.get("answer", ""),
+            "tables_used": response.get("tables_used", []),
+        }
+
     def run(self, question: str, session_id: Optional[str] = None) -> dict:
         from sql_agent.retrieval.glossary import enrich_query_terms
 
+        memory_response = self._answer_from_memory(question, session_id)
+        if memory_response is not None:
+            return memory_response
+
         # Multi-turn: expand a follow-up into a standalone question before anything else.
         resolved = self._resolve_followup(question, session_id)
+        resolved = self._rewrite_with_result_memory(resolved, session_id)
         if session_id:
             self._history.setdefault(session_id, []).append(resolved)
         enriched = enrich_query_terms(resolved)
@@ -263,7 +513,7 @@ class FullPipeline:
             return self._error_response(question, session_id, sql,
                                         f"The generated query was blocked: {check.get('reason')}")
 
-        execution = self._execute(sql)
+        execution = self._execute(sql, provider=gen.get("provider"))
 
         # Vector/similarity row fallback: if a string filter matched nothing, find
         # the closest real values and re-run (the brief's "similar results" rule).
@@ -288,7 +538,7 @@ class FullPipeline:
         summary = self.summariser.summarise(resolved, sql, execution)
 
         rows_as_dicts = [dict(zip(execution.columns, r)) for r in execution.rows]
-        return {
+        response = {
             "question": question,
             "answer": summary.answer,
             "rows": rows_as_dicts,
@@ -308,6 +558,9 @@ class FullPipeline:
             "error": execution.error if not execution.success else None,
             "session_id": session_id,
         }
+        if execution.success:
+            self._remember_result(session_id, resolved, sql, rows_as_dicts, response)
+        return response
 
     def _empty_response(self, question, session_id, clarification, retrieved, provider):
         return {
