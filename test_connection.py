@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 import oci
 import oracledb
 from dotenv import load_dotenv
+
+from app.sql.oracle_connection import connect_adb
 
 
 def _required_env(name: str) -> str:
@@ -15,13 +16,6 @@ def _required_env(name: str) -> str:
     if not value:
         raise RuntimeError(f"Missing required environment variable: {name}")
     return value
-
-
-def _resolve_project_path(value: str) -> str:
-    path = Path(value)
-    if not path.is_absolute():
-        path = Path.cwd() / path
-    return str(path.resolve())
 
 
 def _quote_identifier(identifier: str) -> str:
@@ -36,18 +30,7 @@ def _validate_oci_config() -> None:
 
 
 def _connect_adb() -> oracledb.Connection:
-    wallet_location = _resolve_project_path(_required_env("ADB_WALLET_LOCATION"))
-    connect_kwargs = {
-        "user": _required_env("ADB_USER"),
-        "password": _required_env("ADB_PASSWORD"),
-        "dsn": _required_env("ADB_DSN"),
-        "config_dir": wallet_location,
-        "wallet_location": wallet_location,
-    }
-    wallet_password = os.getenv("ADB_WALLET_PASSWORD")
-    if wallet_password:
-        connect_kwargs["wallet_password"] = wallet_password
-    return oracledb.connect(**connect_kwargs)
+    return connect_adb()
 
 
 def _count_largest_table(connection: oracledb.Connection) -> int:

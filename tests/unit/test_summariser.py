@@ -1,235 +1,105 @@
-"""Tests for src/sql_agent/agents/summariser.py."""
+"""Unit tests for result summarisation."""
 
 from __future__ import annotations
 
-from sql_agent.agents.summariser import Summariser, extract_tables
-from sql_agent.core.models import CandidateSQL, ExecutionResult, RetrievedSchema
+from app.agents.summariser import SelectAIResultSummariser
 
 
-def test_extract_tables_from_join():
-    sql = ("SELECT c.full_name, SUM(o.total_gbp) FROM orders o "
-           "JOIN customers c ON c.customer_id = o.customer_id GROUP BY c.full_name")
-    assert extract_tables(sql) == ["orders", "customers"]
+class FakeCursor:
+    def __init__(self, answer: str) -> None:
+        self.answer = answer
+        self.statement: str | None = None
+        self.parameters: dict | None = None
+
+    def __enter__(self) -> FakeCursor:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        return None
+
+    def execute(self, statement: str, parameters: dict) -> None:
+        self.statement = statement
+        self.parameters = parameters
+
+    def fetchone(self) -> tuple[str]:
+        return (self.answer,)
 
 
-def test_extract_tables_strips_schema_prefix_and_dedupes():
-    sql = "SELECT * FROM sales.orders o JOIN sales.orders p ON p.id = o.parent_id"
-    assert extract_tables(sql) == ["orders"]
+class FakeConnection:
+    def __init__(self, cursor: FakeCursor) -> None:
+        self.cursor_instance = cursor
+
+    def __enter__(self) -> FakeConnection:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        return None
+
+    def cursor(self) -> FakeCursor:
+        return self.cursor_instance
 
 
-def test_fallback_answer_scalar(exec_scalar, schema_customers):
-    s = Summariser()  # no LLM -> deterministic
-    out = s.summarise("How many customers?", "SELECT COUNT(*) FROM customers",
-                      exec_scalar, schema_customers)
-    assert out.answer == "The result is 42."
-    assert out.tables_used == ["customers"]
-    assert out.explanation  # at least one bullet
+def test_summarise_uses_select_ai_narrate() -> None:
+    cursor = FakeCursor("Electronics generated the highest total sales.")
+    connection = FakeConnection(cursor)
+    summariser = SelectAIResultSummariser(
+        profile_name="SALES_AGENT",
+        connection_factory=lambda: connection,
+    )
+
+    result = summariser.summarise(
+        user_question="What were total sales by product category?",
+        generated_sql={"sql": "SELECT ..."},
+        query_results={
+            "status": "success",
+            "columns": ["PRODUCT_CATEGORY", "TOTAL_SALES"],
+            "rows": [{"PRODUCT_CATEGORY": "Electronics", "TOTAL_SALES": 57485698.06}],
+            "row_count": 1,
+        },
+    )
+
+    assert result["answer"] == "Electronics generated the highest total sales."
+    assert result["provider"] == "oracle_select_ai"
+    assert "DBMS_CLOUD_AI.GENERATE" in cursor.statement
+    assert "narrate" in cursor.statement
+    assert cursor.parameters["profile_name"] == "SALES_AGENT"
+    assert "What were total sales by product category?" in cursor.parameters["prompt"]
 
 
-def test_fallback_answer_empty_result():
-    s = Summariser()
-    ex = ExecutionResult(columns=["x"], rows=[], row_count=0, success=True)
-    out = s.summarise("Any refunds?", "SELECT * FROM orders WHERE status='refunded'", ex)
-    assert "No matching records" in out.answer
+def test_summarise_falls_back_when_profile_is_missing() -> None:
+    summariser = SelectAIResultSummariser(profile_name="", connection_factory=lambda: None)
+
+    result = summariser.summarise(
+        user_question="What were total sales by product category?",
+        generated_sql={"sql": "SELECT ..."},
+        query_results={
+            "status": "success",
+            "rows": [
+                {"PRODUCT_CATEGORY": "Electronics", "TOTAL_SALES": 57485698.06},
+                {"PRODUCT_CATEGORY": "Home & Furniture", "TOTAL_SALES": 47674426.96},
+            ],
+        },
+    )
+
+    assert result["provider"] == "local"
+    assert "top row is PRODUCT_CATEGORY: Electronics" in result["answer"]
+    assert result["error"] == "SELECT_AI_PROFILE is not set."
 
 
-def test_failed_execution_is_explained_not_crashed():
-    s = Summariser()
-    ex = ExecutionResult.failure("ORA-00942: table or view does not exist")
-    out = s.summarise("x", "SELECT * FROM nope", ex)
-    assert "could not be completed" in out.answer
-    assert any("ORA-00942" in b for b in out.explanation)
+def test_summarise_accepts_fallback_success_results() -> None:
+    summariser = SelectAIResultSummariser(profile_name="", connection_factory=lambda: None)
 
+    result = summariser.summarise(
+        user_question="What were total sales by product category?",
+        generated_sql={"sql": "SELECT ..."},
+        query_results={
+            "status": "fallback_success",
+            "rows": [
+                {"PRODUCT_CATEGORY": "Electronics", "TOTAL_SALES": 57485698.06},
+                {"PRODUCT_CATEGORY": "Home & Furniture", "TOTAL_SALES": 47674426.96},
+            ],
+        },
+    )
 
-def test_pii_is_scrubbed_from_answer():
-    s = Summariser()
-    ex = ExecutionResult(columns=["email", "n"], rows=[["jane@example.com", 5]], row_count=1)
-    out = s.summarise("Who ordered most?", "SELECT email, COUNT(*) FROM orders GROUP BY email", ex)
-    assert "jane@example.com" not in out.answer
-    assert "[EMAIL]" in out.answer
-
-
-def test_llm_path_uses_model_output(fake_llm, exec_scalar, schema_customers):
-    s = Summariser(llm=fake_llm, model="small")
-    out = s.summarise("How many customers?", CandidateSQL(sql="SELECT COUNT(*) FROM customers"),
-                      exec_scalar, schema_customers)
-    assert out.answer == "There are 42 customers."
-    assert out.explanation == ["We counted every customer record."]
-    assert len(fake_llm.calls) == 2  # answer prompt + explanation prompt
-
-
-def test_llm_token_counting_is_recorded(fake_llm, exec_scalar):
-    from sql_agent.llm.token_counter import TokenCounter
-    tc = TokenCounter()
-    s = Summariser(llm=fake_llm, model="small", token_counter=tc)
-    s.summarise("How many?", "SELECT COUNT(*) FROM customers", exec_scalar)
-    assert len(tc.usages) == 2
-    assert tc.total_cost_usd > 0
-
-
-def test_explanation_mentions_aggregation_and_join():
-    s = Summariser()
-    sql = ("SELECT c.country_code, SUM(o.total_gbp) FROM orders o "
-           "JOIN customers c ON c.customer_id=o.customer_id WHERE o.status='paid' GROUP BY c.country_code")
-    ex = ExecutionResult(columns=["country", "rev"], rows=[["GB", 100.0]], row_count=1)
-    out = s.summarise("Revenue by country?", sql, ex)
-    joined = " ".join(out.explanation).lower()
-    assert "matched" in joined  # join -> matched related records
-    assert "narrowed" in joined or "totals" in joined
-
-
-# --- hybrid summarisation: deterministic profiling + context safeguards -----
-from sql_agent.agents.summariser import (  # noqa: E402
-    _MAX_PREVIEW_ROWS,
-    profile_result,
-)
-from sql_agent.core.models import ExecutionResult as _ER  # noqa: E402
-
-
-def test_profile_result_numeric_aggregates():
-    rows = [["A", 10], ["A", 20], ["B", 30]]
-    prof = profile_result(["cat", "amount"], rows)
-    assert prof["row_count"] == 3
-    amount = next(c for c in prof["columns"] if c["name"] == "amount")
-    assert amount["dtype"] == "numeric"
-    assert amount["sum"] == 60 and amount["min"] == 10 and amount["max"] == 30
-    cat = next(c for c in prof["columns"] if c["name"] == "cat")
-    assert cat["dtype"] == "text" and cat["distinct"] == 2
-
-
-def test_large_result_is_not_dumped_into_prompt():
-    prompts_seen = []
-
-    class CaptureLLM:
-        def complete(self, prompt, model=None):
-            prompts_seen.append(prompt)
-            if "one sentence that answers" in prompt:
-                return '{"answer": "ok"}'
-            return '{"explanation": ["grouped"]}'
-
-    rows = [[f"C{i%5}", float(i)] for i in range(500)]
-    s = Summariser(llm=CaptureLLM())
-    s.summarise("summarise", "SELECT cat, amount FROM orders",
-                _ER(columns=["cat", "amount"], rows=rows, row_count=500))
-    answer_prompt = next(p for p in prompts_seen if "one sentence that answers" in p)
-    # The deterministic sum must be present; the 500 raw rows must not.
-    assert "sum=" in answer_prompt
-    assert answer_prompt.count("\n") < 60  # nowhere near 500 lines
-    assert len(answer_prompt) < 4000
-
-
-def test_small_result_still_shows_rows():
-    captured = {}
-
-    class CaptureLLM:
-        def complete(self, prompt, model=None):
-            captured["last"] = prompt
-            return '{"answer": "ok"}' if "one sentence" in prompt else '{"explanation": ["x"]}'
-
-    rows = [["A", 1], ["B", 2]]
-    Summariser(llm=CaptureLLM()).summarise(
-        "q", "SELECT * FROM t", _ER(columns=["k", "v"], rows=rows, row_count=2))
-    assert len(rows) <= _MAX_PREVIEW_ROWS
-
-
-# --- adversarial robustness (never crash, never leak) -----------------------
-import pytest  # noqa: E402
-
-
-@pytest.mark.parametrize("rows,cols", [
-    ([], ["n"]),                                            # empty
-    ([[None]], ["v"]),                                      # single NULL
-    ([[None, 1], [None, 2]], ["a", "b"]),                  # all-NULL column
-    ([[1], [1, 2], [1, 2, 3]], ["a", "b", "c"]),           # ragged rows
-    ([["'; DROP TABLE orders; --"], ["a\"b\\c\n\t"]], ["t"]),  # injection/special
-    ([["Zoë"], ["北京"], ["🚀"]], ["name"]),                # unicode
-    ([[1e308], [-1e308], [10**30]], ["x"]),                # extreme numbers
-    ([[True, None], [False, "n/a"]], ["f", "v"]),          # booleans + mixed
-    ([list(range(60))], [f"c{i}" for i in range(60)]),     # very wide
-    ([[f"K{i%10}", i] for i in range(2000)], ["k", "v"]),  # many rows
-])
-def test_summariser_never_crashes_on_adversarial_input(rows, cols):
-    s = Summariser(max_preview_rows=10)
-    out = s.summarise("q", "SELECT * FROM orders",
-                      _ER(columns=cols, rows=rows, row_count=len(rows)))
-    assert out.answer and isinstance(out.answer, str)
-    assert isinstance(out.explanation, list)
-
-
-def test_summariser_scrubs_pii_in_adversarial_cells():
-    s = Summariser(max_preview_rows=10)
-    ex = _ER(columns=["email", "phone"], rows=[["a@b.com", "+44 7700 900123"]], row_count=1)
-    out = s.summarise("who", "SELECT email, phone FROM customers", ex)
-    assert "a@b.com" not in out.answer
-
-
-def test_profile_handles_ragged_and_null_without_error():
-    from sql_agent.agents.summariser import profile_result
-    prof = profile_result(["a", "b", "c"], [[1], [None, 2], [3, 4, 5]])
-    assert prof["row_count"] == 3
-    assert len(prof["columns"]) == 3
-
-
-# --- insights / chart / clarification / confidence --------------------------
-from sql_agent.agents.summariser import (  # noqa: E402
-    confidence_score,
-    detect_clarification,
-    generate_insights,
-    suggest_chart,
-)
-
-
-def test_insights_top_contributor_and_share():
-    cols = ["region", "revenue"]
-    rows = [["East", 45.0], ["West", 36.0], ["Centre", 36.0], ["South", 25.0]]
-    ins = generate_insights("revenue by region", cols, rows)
-    assert any("East leads" in i for i in ins)
-    assert any("%" in i for i in ins)
-
-
-def test_insights_time_series_trend():
-    cols = ["month", "revenue"]
-    rows = [[1, 1000.0], [2, 1200.0], [3, 800.0]]
-    ins = generate_insights("monthly revenue", cols, rows)
-    assert any("peaked" in i for i in ins)
-
-
-def test_insights_empty_for_scalar():
-    assert generate_insights("count", ["n"], [[42]]) == []
-
-
-def test_chart_bar_line_pie_none():
-    assert suggest_chart("by category", ["category", "revenue"],
-                         [[f"c{i}", i] for i in range(10)]).type == "bar"
-    assert suggest_chart("monthly", ["month", "revenue"],
-                         [[1, 10], [2, 20]]).type == "line"
-    assert suggest_chart("few cats", ["region", "revenue"],
-                         [["A", 1], ["B", 2], ["C", 3]]).type == "pie"
-    assert suggest_chart("count", ["n"], [[42]]).type == "none"
-
-
-def test_clarification_flags_ambiguous_margin():
-    msg = detect_clarification("average margin by region")
-    assert msg and "margin" in msg and "profit margin" in msg
-
-
-def test_clarification_none_for_unambiguous():
-    assert detect_clarification("total revenue by region") is None
-    assert detect_clarification("how many orders are there") is None
-
-
-def test_confidence_heuristic():
-    assert confidence_score(True, 5, False) == 0.9
-    assert confidence_score(True, 5, True) <= 0.55     # ambiguity lowers it
-    assert confidence_score(False, 0, False) == 0.2    # failed execution
-    assert confidence_score(True, 0, False) <= 0.5     # empty result
-
-
-def test_summarise_populates_new_fields():
-    from sql_agent.core.models import ExecutionResult as ER
-    s = Summariser()
-    ex = ER(columns=["region", "revenue"],
-            rows=[["East", 45.0], ["West", 36.0], ["South", 25.0]], row_count=3, success=True)
-    out = s.summarise("total revenue by region", "SELECT region, SUM(revenue) FROM product_sales GROUP BY region", ex)
-    assert out.insights and out.chart and out.confidence is not None
-    assert out.chart.type in ("bar", "pie", "line")
+    assert result["provider"] == "local"
+    assert "top row is PRODUCT_CATEGORY: Electronics" in result["answer"]
