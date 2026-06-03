@@ -1,0 +1,96 @@
+version: '3.8'
+
+services:
+  # API Server
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    container_name: iads-agent-api
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      # Database
+      - ADB_USER=${ADB_USER}
+      - ADB_PASSWORD=${ADB_PASSWORD}
+      - ADB_DSN=${ADB_DSN}
+      - ADB_WALLET_LOCATION=${ADB_WALLET_LOCATION}
+      - ADB_WALLET_PASSWORD=${ADB_WALLET_PASSWORD}
+      # OCI
+      - OCI_CONFIG_PATH=${OCI_CONFIG_PATH}
+      - OCI_REGION=${OCI_REGION}
+      - OCI_COMPARTMENT_ID=${OCI_COMPARTMENT_ID}
+      - OCI_CONFIG_PROFILE=${OCI_CONFIG_PROFILE}
+      # Models
+      - OCI_GENAI_MODEL_ID=${OCI_GENAI_MODEL_ID}
+      - OCI_EMBED_MODEL_ID=${OCI_EMBED_MODEL_ID}
+      # Agent config
+      - AGENT_MAX_RETRIES=${AGENT_MAX_RETRIES:-3}
+      - AGENT_QUERY_TIMEOUT_SECONDS=${AGENT_QUERY_TIMEOUT_SECONDS:-15}
+      - AGENT_MAX_ROWS_RETURNED=${AGENT_MAX_ROWS_RETURNED:-500}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:8501}
+    volumes:
+      - ./.oci:/app/.oci:ro
+      - ./logs:/app/logs
+      - ./wallet:/app/wallet:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    networks:
+      - iads-network
+
+  # Streamlit Frontend
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    container_name: iads-agent-frontend
+    command: python -m streamlit run frontend/streamlit_app.py
+    ports:
+      - "${FRONTEND_PORT:-8501}:8501"
+    environment:
+      - API_URL=${API_URL:-http://api:8000}
+      - STREAMLIT_SERVER_PORT=8501
+      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - iads-network
+
+  # Monitoring Dashboard
+  monitoring:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    container_name: iads-agent-monitoring
+    command: python -m streamlit run monitoring_dashboard.py
+    ports:
+      - "${MONITORING_PORT:-8502}:8502"
+    environment:
+      - API_URL=${API_URL:-http://api:8000}
+      - STREAMLIT_SERVER_PORT=8502
+      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+    depends_on:
+      api:
+        condition: service_healthy
+    volumes:
+      - ./logs:/app/logs:ro
+    restart: unless-stopped
+    networks:
+      - iads-network
+
+networks:
+  iads-network:
+    driver: bridge
+
+# Volume management
+volumes:
+  logs:
+    driver: local

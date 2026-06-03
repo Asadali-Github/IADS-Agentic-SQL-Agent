@@ -38,32 +38,25 @@ except Exception:  # noqa: BLE001
 def _pipeline_query(question: str, session_id: str) -> QueryResponse:
     """Run the full pipeline and map its result onto QueryResponse."""
     r = _pipeline_answer(question, session_id)  # type: ignore[misc]
-    explanation = r.get("explanation", "")
-    if r.get("insights"):
-        explanation = (explanation + "\n\nKey insights:\n- "
-                       + "\n- ".join(r["insights"])).strip()
     return QueryResponse(
         answer=r.get("answer", ""),
         rows=r.get("rows", []),
         sql=r.get("sql", ""),
-        explanation=explanation,
+        explanation=r.get("explanation", ""),
         tables_used=r.get("tables_used", []),
+        insights=r.get("insights", []),
+        chart=r.get("chart"),
+        clarification=r.get("clarification"),
         confidence=float(r.get("confidence", 1.0) or 0.0),
         approximate_match=bool(r.get("approximate_match", False)),
         error=r.get("error"),
         session_id=session_id,
     )
 
+
 # ---------------------------------------------------------------------------
 # Stub orchestrator — replace this one call with the real orchestrator once
-# Omar's implementation is ready:
-#
-#   from sql_agent.agents.orchestrator import Orchestrator
-#   _orchestrator = Orchestrator()
-#
-# Then in /query:
-#   result = _orchestrator.run(request.question, request.session_id)
-#   return QueryResponse(**result)
+# Omar's implementation is ready.
 # ---------------------------------------------------------------------------
 
 def _stub_orchestrator(question: str, session_id: str) -> QueryResponse:
@@ -77,6 +70,8 @@ def _stub_orchestrator(question: str, session_id: str) -> QueryResponse:
         ],
         sql="SELECT region, category, SUM(sales) AS total_sales\nFROM orders\nWHERE region = 'UK'\nGROUP BY region, category\nORDER BY total_sales DESC;",
         explanation="I filtered the orders table to the UK region and grouped the results by product category, summing the sales column.",
+        insights=["Electronics leads with £4.2M (46% of total).", "Food is lowest at £1.8M."],
+        chart={"type": "bar", "x": "category", "y": "total_sales", "title": "Sales by Category"},
         tables_used=["orders"],
         confidence=0.92,
         approximate_match=False,
@@ -96,7 +91,6 @@ def query(request: QueryRequest) -> QueryResponse:
     try:
         if _pipeline_answer is not None:
             return _pipeline_query(request.question, session_id)
-        # Fallback: stub response if the pipeline could not be imported.
         return _stub_orchestrator(request.question, session_id)
     except QueryParseError:
         return QueryResponse(
@@ -144,6 +138,26 @@ def query(request: QueryRequest) -> QueryResponse:
 
 @router.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
-    """Liveness check."""
-    return HealthResponse()
+    """Liveness check — also probes the database connection."""
+    db_status = "disconnected"
+    try:
+        # Try the live Oracle connection first
+        from app.sql.oracle_connection import get_connection
+        conn = get_connection()
+        if conn is not None:
+            db_status = "connected"
+    except Exception:  # noqa: BLE001
+        pass
 
+    if db_status == "disconnected":
+        try:
+            # Fall back: check if offline DuckDB is available
+            from evaluation.local_db import get_local_db
+            db = get_local_db()
+            result = db.execute("SELECT 1")
+            if result.success:
+                db_status = "connected"
+        except Exception:  # noqa: BLE001
+            pass
+
+    return HealthResponse(database=db_status)

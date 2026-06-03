@@ -1,28 +1,20 @@
-"""Small in-process conversation memory for follow-up business questions."""
+"""Small in-process conversation memory for follow-up business questions.
+
+Follow-up detection and rewriting live in :mod:`app.agents.followups`, which is
+shared with the offline pipeline so both backends behave identically. Memory's
+only job here is to remember recent successful turns and, for a genuine
+elliptical follow-up, hand back a *standalone* rewritten question. It never
+injects the previous SQL into the next turn, so every question is generated and
+executed against the database afresh instead of being answered from the prior
+result.
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
 
-FOLLOW_UP_MARKERS = {
-    "also",
-    "again",
-    "same",
-    "previous",
-    "last",
-    "instead",
-    "compare",
-}
-
-FOLLOW_UP_PHRASES = (
-    "what about",
-    "how about",
-    "and ",
-    "for ",
-    "same for",
-    "do the same",
-)
+from app.agents.followups import looks_like_follow_up, resolve as resolve_follow_up
 
 
 @dataclass(frozen=True)
@@ -52,17 +44,19 @@ class ConversationMemory:
         self.turns: list[ConversationTurn] = []
 
     def resolve_question(self, user_question: str) -> str:
-        """Expand a follow-up question with the latest successful business context."""
+        """Rewrite a genuine follow-up into a standalone, database-ready question.
+
+        Standalone questions (and anything with no prior successful turn) are
+        returned unchanged. Genuine follow-ups like "what about profit?" are
+        rewritten against the previous *question* (e.g. "What were total profit
+        by product category?") -- never against the previous SQL -- so the agent
+        always queries the database instead of replaying the last answer.
+        """
         question = user_question.strip()
         previous_turn = self.latest_successful_turn()
-        if not previous_turn or not self._looks_like_follow_up(question):
+        if not previous_turn:
             return question
-
-        return (
-            f"Previous successful question: {previous_turn.original_question}\n"
-            f"Previous SQL: {previous_turn.generated_sql.get('sql')}\n"
-            f"Follow-up question: {question}"
-        )
+        return resolve_follow_up(question, previous_turn.original_question)
 
     def record(self, response: dict[str, Any]) -> None:
         """Store a completed pipeline response."""
@@ -84,13 +78,8 @@ class ConversationMemory:
                 return turn
         return None
 
-    def _looks_like_follow_up(self, question: str) -> bool:
-        normalized_question = question.lower().strip()
-        words = normalized_question.split()
-        if len(words) <= 4:
-            return True
-
-        if any(normalized_question.startswith(phrase) for phrase in FOLLOW_UP_PHRASES):
-            return True
-
-        return any(marker in words for marker in FOLLOW_UP_MARKERS)
+    def is_follow_up(self, question: str) -> bool:
+        """True only when ``question`` is a genuine follow-up to a prior turn."""
+        if not self.latest_successful_turn():
+            return False
+        return looks_like_follow_up(question)

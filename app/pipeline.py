@@ -34,6 +34,7 @@ for _p in (str(_ROOT), str(_ROOT / "src")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+from app.agents.followups import resolve as resolve_follow_up  # noqa: E402
 from sql_agent.agents.summariser import Summariser  # noqa: E402
 from sql_agent.core.models import ExecutionResult  # noqa: E402
 
@@ -214,21 +215,15 @@ class FullPipeline:
         except Exception:  # noqa: BLE001 - retrieval optional offline
             return []
 
-    # Multi-turn: dimensions / measures we can swap into a prior question.
-    _DIMS = {"region": "region", "category": "category", "categories": "category",
-             "subcategory": "sub_category", "sub-category": "sub_category",
-             "sub category": "sub_category", "state": "state", "states": "state",
-             "product": "product", "products": "product", "city": "city"}
-    _MEAS = {"revenue": "revenue", "sales": "revenue", "turnover": "revenue",
-             "profit": "profit", "margin": "profit margin", "units": "units",
-             "quantity": "units", "orders": "orders"}
-    _TRIGGER = re.compile(r"^\s*(and|what about|how about|now|also|then|by|for|just)\b", re.I)
-
     def _resolve_followup(self, question: str, session_id: Optional[str]) -> str:
-        """Rewrite a short follow-up into a standalone question using the last turn.
+        """Rewrite a genuine follow-up into a standalone question using the last turn.
 
         "total revenue by region" then "what about by category?" -> "total revenue
-        by category". Makes the agent genuinely conversational (multi-turn).
+        by category". Standalone questions (e.g. "show total profit by region")
+        are returned untouched and answered with a fresh database query — they are
+        never merged with the previous turn. Detection/rewriting is delegated to
+        :mod:`app.agents.followups`, shared with the live Oracle backend so both
+        behave identically.
         """
         q = question.strip()
         if not session_id:            # no multi-turn without an explicit session
@@ -236,26 +231,7 @@ class FullPipeline:
         prior = self._history.get(session_id)
         if not prior:
             return q
-        low = q.lower()
-        mentions_field = any(re.search(rf"\b{re.escape(k)}\b", low)
-                             for k in (*self._DIMS, *self._MEAS))
-        if not mentions_field or not (self._TRIGGER.match(low) or len(q.split()) <= 5):
-            return q
-        rewritten = prior[-1]
-        for key, canon in self._DIMS.items():
-            if re.search(rf"\b{re.escape(key)}\b", low):
-                if re.search(r"\bby\b", rewritten, re.I):
-                    rewritten = re.sub(r"(\bby\b\s+)([\w\- ]+?)(\s*\??$)",
-                                       rf"\1{canon}\3", rewritten, flags=re.I)
-                else:
-                    rewritten = f"{rewritten} by {canon}"
-                break
-        for key, canon in self._MEAS.items():
-            if re.search(rf"\b{re.escape(key)}\b", low):
-                rewritten = re.sub(r"\b(revenue|sales|turnover|profit|units|quantity|orders|margin)\b",
-                                   canon, rewritten, count=1, flags=re.I)
-                break
-        return rewritten
+        return resolve_follow_up(q, prior[-1])
 
     def run(self, question: str, session_id: Optional[str] = None) -> dict:
         from sql_agent.retrieval.glossary import enrich_query_terms

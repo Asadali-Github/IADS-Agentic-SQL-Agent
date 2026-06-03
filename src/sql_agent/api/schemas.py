@@ -6,6 +6,8 @@ Status: implemented.
 
 from __future__ import annotations
 
+from typing import Any, Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -43,6 +45,20 @@ class QueryResponse(BaseModel):
         description="Table names touched by the query.",
     )
 
+    # Enrichment — computed by the summariser
+    insights: list[str] = Field(
+        default_factory=list,
+        description="Deterministic business insights derived from the result rows.",
+    )
+    chart: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Chart spec: {type, x, y, title, reason}. None means no chart.",
+    )
+    clarification: Optional[str] = Field(
+        default=None,
+        description="Clarifying question when the query term is ambiguous.",
+    )
+
     # Quality signals
     confidence: float = Field(
         default=1.0,
@@ -73,4 +89,4 @@ class HealthResponse(BaseModel):
 
     status: str = "ok"
     version: str = "0.1.0"
-
+    database: str = "unknown"

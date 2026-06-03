@@ -81,7 +81,9 @@ class FakeSummariser:
         }
 
 
-def test_orchestrator_resolves_follow_up_with_previous_successful_question() -> None:
+def test_orchestrator_rewrites_follow_up_into_standalone_question() -> None:
+    """A genuine follow-up is rewritten into a standalone question and the
+    previous SQL is NEVER injected into the next turn (no answering-from-memory)."""
     retriever = FakeRetriever([REVENUE_DOC, PROFIT_DOC])
     generator = FakeGenerator()
     orchestrator = QueryOrchestrator(
@@ -96,12 +98,42 @@ def test_orchestrator_resolves_follow_up_with_previous_successful_question() -> 
 
     assert first_response["pipeline_stage"] == "sql_executed_successfully"
     assert second_response["pipeline_stage"] == "sql_executed_successfully"
-    assert "Previous successful question: What were total sales by product category?" in (
-        second_response["resolved_question"]
+
+    resolved = second_response["resolved_question"]
+    # Rewritten into a real, standalone question about profit by product category.
+    assert "profit" in resolved.lower()
+    assert "product category" in resolved.lower()
+    # The previous question's SQL must not leak into the resolved question...
+    assert "Previous SQL" not in resolved
+    assert "Previous successful question" not in resolved
+    assert "SELECT" not in resolved.upper()
+    # ...nor into the prompt handed to the SQL generator.
+    assert "Previous SQL" not in generator.prompts[-1]
+    assert "Previous successful question" not in generator.prompts[-1]
+    # Retrieval ran on the rewritten standalone question.
+    assert retriever.questions[-1] == resolved
+
+
+def test_orchestrator_does_not_hijack_standalone_question() -> None:
+    """A self-contained question after a prior turn must be answered fresh, not
+    rewritten from the previous turn — this is the core bug being fixed."""
+    retriever = FakeRetriever([REVENUE_DOC, PROFIT_DOC])
+    generator = FakeGenerator()
+    orchestrator = QueryOrchestrator(
+        retriever=retriever,
+        sql_generator=generator,
+        sql_executor=FakeExecutor(),
+        summariser=FakeSummariser(),
     )
-    assert "Follow-up question: What about profit?" in second_response["resolved_question"]
-    assert retriever.questions[-1] == second_response["resolved_question"]
-    assert generator.prompts[-1].count("Previous successful question") == 1
+
+    orchestrator.process_question("What were total sales by product category?")
+    standalone = orchestrator.process_question("Show total profit by region")
+
+    # Returned untouched — not merged with the previous "by product category" turn.
+    assert standalone["resolved_question"] == "Show total profit by region"
+    assert "product category" not in standalone["resolved_question"].lower()
+    assert "Previous SQL" not in generator.prompts[-1]
+    assert retriever.questions[-1] == "Show total profit by region"
 
 
 def test_orchestrator_skips_sql_generation_for_unsupported_question() -> None:
