@@ -17,6 +17,8 @@ import streamlit as st
 # ---------------------------------------------------------------------------
 
 API_URL = os.getenv("API_URL", "http://localhost:8000")
+API_TIMEOUT_SECONDS = float(os.getenv("API_TIMEOUT_SECONDS", "120"))
+HEALTH_TIMEOUT_SECONDS = float(os.getenv("HEALTH_TIMEOUT_SECONDS", "5"))
 CONFIDENCE_THRESHOLD = 0.7
 
 # Placeholder tables — replaced by Abdul Qayyum's schema introspector once ready
@@ -29,10 +31,10 @@ _PLACEHOLDER_TABLES: list[str] = []
 COPY = {
     "app_name": "IADS SQL Agent",
     "app_caption": "AI-powered natural language querying",
-    "db_section": "Database",
-    "db_connected": "Connected",
-    "db_not_connected": "Not connected",
-    "db_waiting": "Waiting for OCI connection…",
+    "db_section": "Connection",
+    "db_connected": "Backend connected",
+    "db_not_connected": "Backend offline",
+    "db_waiting": "Waiting for backend connection…",
     "tables_label": "Tables available",
     "demo_section": "Demo mode",
     "demo_caption": "Use cached results instead of live DB — safe for presentations.",
@@ -88,13 +90,22 @@ def _empty_error_response(msg: str, session_id: str | None) -> dict:
 def call_api(question: str, session_id: str | None) -> dict:
     payload = {"question": question, "session_id": session_id}
     try:
-        resp = httpx.post(f"{API_URL}/query", json=payload, timeout=30)
+        resp = httpx.post(f"{API_URL}/query", json=payload, timeout=API_TIMEOUT_SECONDS)
         resp.raise_for_status()
         return resp.json()
     except httpx.ConnectError:
         return _empty_error_response(COPY["api_unreachable"].format(url=API_URL), session_id)
     except Exception as exc:  # noqa: BLE001
         return _empty_error_response(str(exc), session_id)
+
+
+def api_is_healthy() -> bool:
+    try:
+        resp = httpx.get(f"{API_URL}/health", timeout=HEALTH_TIMEOUT_SECONDS)
+        resp.raise_for_status()
+        return resp.json().get("status") == "ok"
+    except Exception:  # noqa: BLE001
+        return False
 
 # ---------------------------------------------------------------------------
 # Chart auto-detection
@@ -158,16 +169,12 @@ def _render_sidebar() -> None:
         # --- Database status ---
         st.subheader(COPY["db_section"])
 
-        # ABDUL QAYYUM: replace these two lines with a real connection check.
-        # Call database/connection.py or hit GET /health to get live status.
-        # Set db_connected=True and populate st.session_state.db_tables with
-        # the list of table names so they appear in the sidebar.
-        db_connected = False
+        db_connected = api_is_healthy()
         tables: list[str] = st.session_state.db_tables
 
         if db_connected:
             st.success(f"🟢 {COPY['db_connected']}")
-            st.caption("OCI Autonomous DB")
+            st.caption("Live Oracle is used when the database listener accepts connections.")
             if tables:
                 st.markdown(f"**{COPY['tables_label']}**")
                 for t in tables:
@@ -197,7 +204,7 @@ def _render_sidebar() -> None:
                 st.session_state.uploaded_db = None
                 st.rerun()
         else:
-            st.caption("No file loaded — using OCI database.")
+            st.caption("No file loaded — using the configured backend data source.")
 
         st.divider()
 

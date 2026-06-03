@@ -33,7 +33,7 @@ from typing import Any, Optional
 from dotenv import load_dotenv
 
 _ROOT = Path(__file__).resolve().parents[1]
-load_dotenv(_ROOT / ".env")
+load_dotenv(_ROOT / ".env", override=True)
 for _p in (str(_ROOT), str(_ROOT / "src")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
@@ -239,6 +239,15 @@ class FullPipeline:
         r"\b(which|what|how much|how many|show|tell me|give me|compare)\b",
         re.I,
     )
+    _SORT_MEMORY_Q = re.compile(
+        r"\b(sort|order|reorder)\b.*\b(asc|ascending|desc|descending)\b"
+        r"|\b(asc|ascending|desc|descending)\b.*\b(sort|order|reorder)\b",
+        re.I,
+    )
+    _FRESH_ANALYTIC_Q = re.compile(
+        r"\b(rank(?:ing)?|top\s+\d+|bottom\s+\d+|list\s+\d+|show\s+\d+)\b.*\bby\b",
+        re.I,
+    )
 
     def _resolve_followup(self, question: str, session_id: Optional[str]) -> str:
         """Rewrite a short follow-up into a standalone question using the last turn.
@@ -368,6 +377,13 @@ class FullPipeline:
             return None
 
         low = question.lower()
+        if self._is_fresh_analytic_question(question):
+            return None
+
+        sorted_memory_response = self._answer_sorted_memory(question, session_id, memory)
+        if sorted_memory_response is not None:
+            return sorted_memory_response
+
         if not (self._DIRECT_RESULT_Q.search(question) or self._ROW_REF.search(question)):
             return None
 
@@ -438,6 +454,8 @@ class FullPipeline:
         memory = self._last_results.get(session_id)
         if not memory or not memory.get("rows"):
             return question
+        if self._is_fresh_analytic_question(question):
+            return question
         if not self._ROW_REF.search(question):
             return question
 
@@ -459,6 +477,78 @@ class FullPipeline:
 
         dimension_name = self._business_dimension_name(dimension_column)
         return f"What is total {measure} for {dimension_name} {dimension_value}?"
+
+    def _is_fresh_analytic_question(self, question: str) -> bool:
+        """Return True for standalone rank/list queries that should run as new SQL."""
+        return bool(self._FRESH_ANALYTIC_Q.search(question))
+
+    def _answer_sorted_memory(
+        self,
+        question: str,
+        session_id: Optional[str],
+        memory: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        if not session_id or not self._SORT_MEMORY_Q.search(question):
+            return None
+
+        rows = memory.get("rows") or []
+        if not rows:
+            return None
+
+        first_row = rows[0]
+        numeric_columns = self._numeric_columns(first_row)
+        if not numeric_columns:
+            return None
+
+        sort_column = self._memory_sort_column(question, numeric_columns)
+        if sort_column is None:
+            return None
+
+        descending = bool(re.search(r"\b(desc|descending)\b", question, re.I))
+        sorted_rows = sorted(
+            rows,
+            key=lambda row: row.get(sort_column) if row.get(sort_column) is not None else float("-inf"),
+            reverse=descending,
+        )
+        order = "descending" if descending else "ascending"
+        self._last_results[session_id] = {
+            **memory,
+            "question": question,
+            "rows": sorted_rows,
+            "answer": f"Sorted the previous result by {sort_column} in {order} order.",
+        }
+
+        return {
+            "question": question,
+            "answer": f"Sorted the previous result by {sort_column} in {order} order.",
+            "rows": sorted_rows,
+            "columns": list(sorted_rows[0].keys()) if sorted_rows else [],
+            "sql": memory.get("sql", ""),
+            "explanation": "Answered by reordering the rows returned by the previous question.",
+            "explanation_bullets": ["Sorted the previous result set without running a new SQL query."],
+            "insights": [],
+            "chart": None,
+            "tables_used": memory.get("tables_used", []),
+            "confidence": 0.95,
+            "clarification": None,
+            "approximate_match": False,
+            "provider": "conversation_memory",
+            "retrieved_doc_ids": [],
+            "latency_ms": 0.0,
+            "error": None,
+            "session_id": session_id,
+        }
+
+    def _memory_sort_column(self, question: str, numeric_columns: list[str]) -> str | None:
+        requested_measure = self._requested_measure(question)
+        if requested_measure:
+            requested_tokens = requested_measure.replace(" ", "_").split("_")
+            for column in numeric_columns:
+                column_name = column.lower().replace(" ", "_")
+                if any(token in column_name for token in requested_tokens):
+                    return column
+
+        return numeric_columns[0] if numeric_columns else None
 
     def _remember_result(
         self,
