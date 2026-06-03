@@ -1,16 +1,46 @@
 # Runtime dependencies — unpinned scaffold.
-# pyproject.toml is the canonical source. Regenerate a pinned requirements.lock during the hackathon with:
+# pyproject.toml is the canonical source. Regenerate a pinned lock during the
+# hackathon with:
 #   pip-compile pyproject.toml -o requirements.lock
+#
+# Quick install (all platforms):
+#   pip install -r requirements.txt
+#
+# After installing, download the spaCy model required by presidio:
+#   python -m spacy download en_core_web_lg
 
+# ── Web framework & API ──────────────────────────────────────────────────────
+fastapi>=0.110
+uvicorn[standard]>=0.27
+httpx>=0.27
+
+# ── Frontend ─────────────────────────────────────────────────────────────────
+streamlit>=1.32
+plotly>=5.20          # charts in the Streamlit dashboard
+pandas>=2.2           # DataFrame handling in frontend + evaluation pipeline
+
+# ── Data & SQL ───────────────────────────────────────────────────────────────
+duckdb>=0.10          # offline local DB used in evaluation & demo pipeline
+sqlglot>=23.0         # SQL parsing, validation, and table extraction
+pyyaml>=6.0           # schema_descriptions.yaml, glossary.yaml
+
+# ── OCI / Oracle ─────────────────────────────────────────────────────────────
+oci>=2.120            # Oracle Cloud Infrastructure SDK
+oracledb>=2.1         # python-oracledb driver for ADB connections
+
+# ── AI / safety ──────────────────────────────────────────────────────────────
+presidio-analyzer>=2.2     # PII detection (NER-based)
+presidio-anonymizer>=2.2   # PII redaction
+spacy>=3.7                 # NLP backend for presidio
+# Run after install: python -m spacy download en_core_web_lg
+
+# ── Config & validation ──────────────────────────────────────────────────────
 pydantic>=2.6
 pydantic-settings>=2.2
 python-dotenv>=1.0
-oci>=2.120
-oracledb>=2.1
-fastapi>=0.110
-uvicorn[standard]>=0.27
-streamlit>=1.32
-httpx>=0.27
-numpy>=1.26
+
+# ── Observability ────────────────────────────────────────────────────────────
 structlog>=24.1
-sqlglot>=23.0
+
+# ── Numerics ─────────────────────────────────────────────────────────────────
+numpy>=1.26

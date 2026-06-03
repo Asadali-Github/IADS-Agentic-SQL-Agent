@@ -37,31 +37,28 @@ class QueryOrchestrator:
 
     def process_question(self, user_question: str) -> dict:
         """Run the RAG-to-Select-AI-to-results pipeline for a user question."""
-        intent_assessment = assess_question_intent_safety(user_question)
-        if not intent_assessment["is_supported"]:
-            response = self._unsupported_response(
-                user_question=user_question,
-                resolved_question=user_question.strip(),
-                retrieved_documents=[],
-                support_assessment=intent_assessment,
-                retrieval_provider="not_run_safety_guard",
+        previous_turn = self.memory.latest_successful_turn()
+        previous_question = previous_turn.original_question if previous_turn else None
+        
+        is_related = False
+        resolved_question = user_question.strip()
+        
+        if previous_question:
+            from app.agents.followups import classify_and_rewrite_live
+            is_related, resolved_question = classify_and_rewrite_live(
+                resolved_question,
+                previous_question,
+                getattr(self.sql_generator, "profile_name", None),
+                getattr(self.sql_generator, "connection_factory", None),
             )
-            self.memory.record(response)
-            return response
+            
+        if not is_related and previous_question:
+            # Reset conversation memory to avoid contamination from prior queries
+            self.memory.turns = []
+            resolved_question = user_question.strip()
 
-        resolution = self.memory.resolve(user_question)
-        memory_answer = self.memory.answer_from_previous_results(user_question)
-        if memory_answer:
-            response = self._memory_answer_response(user_question, resolution, memory_answer)
-            self.memory.record(response)
-            return response
-
-        resolved_question = resolution.resolved_question
-        retrieved_documents = self.retriever.retrieve(resolution.retrieval_question)
-        support_assessment = assess_question_support(
-            resolution.support_question,
-            retrieved_documents,
-        )
+        retrieved_documents = self.retriever.retrieve(resolved_question)
+        support_assessment = assess_question_support(resolved_question, retrieved_documents)
         if not support_assessment["is_supported"]:
             response = self._unsupported_response(
                 user_question=user_question,

@@ -1,7 +1,8 @@
 """Safe SQL executor: read-only user, timeout, row cap.
 
 Owner: Hassan
-Status: placeholder — implement during the hackathon.
+Status: INTERFACE SPEC. The read-only executor is realized offline in
+`evaluation/local_db.py` (DuckDB) and live via the ADB read-only user.
 
 TODO:
 - Define the public interface here

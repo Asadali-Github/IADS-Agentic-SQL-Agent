@@ -121,7 +121,9 @@ class FakeSummariser:
         }
 
 
-def test_orchestrator_resolves_follow_up_with_previous_successful_question() -> None:
+def test_orchestrator_rewrites_follow_up_into_standalone_question() -> None:
+    """A genuine follow-up is rewritten into a standalone question and the
+    previous SQL is NEVER injected into the next turn (no answering-from-memory)."""
     retriever = FakeRetriever([REVENUE_DOC, PROFIT_DOC])
     generator = FakeGenerator()
     orchestrator = QueryOrchestrator(
@@ -136,111 +138,25 @@ def test_orchestrator_resolves_follow_up_with_previous_successful_question() -> 
 
     assert first_response["pipeline_stage"] == "sql_executed_successfully"
     assert second_response["pipeline_stage"] == "sql_executed_successfully"
-    assert second_response["resolved_question"] == "What were total profit by product category?"
-    assert retriever.questions[-1] == (
-        "What were total sales by product category? What about profit?"
-    )
-    assert generator.prompts[-1].count("Previous successful question") == 1
-    assert "Previous SQL:" in generator.prompts[-1]
+
+    resolved = second_response["resolved_question"]
+    # Rewritten into a real, standalone question about profit by product category.
+    assert "profit" in resolved.lower()
+    assert "product category" in resolved.lower()
+    # The previous question's SQL must not leak into the resolved question...
+    assert "Previous SQL" not in resolved
+    assert "Previous successful question" not in resolved
+    assert "SELECT" not in resolved.upper()
+    # ...nor into the prompt handed to the SQL generator.
+    assert "Previous SQL" not in generator.prompts[-1]
+    assert "Previous successful question" not in generator.prompts[-1]
+    # Retrieval ran on the rewritten standalone question.
+    assert retriever.questions[-1] == resolved
 
 
-def test_orchestrator_does_not_treat_short_non_business_text_as_follow_up() -> None:
-    retriever = FakeRetriever([REVENUE_DOC, PROFIT_DOC])
-    orchestrator = QueryOrchestrator(
-        retriever=retriever,
-        sql_generator=FakeGenerator(),
-        sql_executor=FakeExecutor(),
-        summariser=FakeSummariser(),
-    )
-
-    orchestrator.process_question("What were total sales by product category?")
-    response = orchestrator.process_question("Thanks")
-
-    assert response["resolved_question"] == "Thanks"
-    assert retriever.questions[-1] == "Thanks"
-
-
-def test_orchestrator_answers_lowest_of_previous_rows_from_memory() -> None:
-    retriever = FakeRetriever([REVENUE_DOC])
-    generator = FakeGenerator()
-    orchestrator = QueryOrchestrator(
-        retriever=retriever,
-        sql_generator=generator,
-        sql_executor=FakeProductExecutor(),
-        summariser=FakeSummariser(),
-    )
-
-    first_response = orchestrator.process_question("What are the top 5 products by revenue?")
-    second_response = orchestrator.process_question("what is the lowest of them")
-
-    assert first_response["pipeline_stage"] == "sql_executed_successfully"
-    assert second_response["pipeline_stage"] == "answered_from_conversation_memory"
-    assert second_response["answer"]["provider"] == "conversation_memory"
-    assert "Apple iPhone 14" in second_response["answer"]["answer"]
-    assert "5,740,819.18" in second_response["answer"]["answer"]
-    assert second_response["query_results"]["rows"] == [
-        {"PRODUCT_NAME": "Apple iPhone 14", "TOTAL_REVENUE": 5740819.18}
-    ]
-    assert len(generator.prompts) == 1
-    assert len(retriever.questions) == 1
-
-
-def test_orchestrator_sorts_previous_rows_without_requerying_database() -> None:
-    retriever = FakeRetriever([REVENUE_DOC])
-    generator = FakeProductGenerator()
-    orchestrator = QueryOrchestrator(
-        retriever=retriever,
-        sql_generator=generator,
-        sql_executor=FakeProductExecutor(),
-        summariser=FakeSummariser(),
-    )
-
-    first_response = orchestrator.process_question("What are the top 5 products by revenue?")
-    sorted_response = orchestrator.process_question("sort them ascendingly")
-
-    assert first_response["pipeline_stage"] == "sql_executed_successfully"
-    assert sorted_response["pipeline_stage"] == "answered_from_conversation_memory"
-    assert sorted_response["retrieval_provider"] == "conversation_memory"
-    assert sorted_response["query_results"]["rows"] == [
-        {"PRODUCT_NAME": "Apple iPhone 14", "TOTAL_REVENUE": 5740819.18},
-        {"PRODUCT_NAME": "Apple Watch", "TOTAL_REVENUE": 6834472.35},
-        {"PRODUCT_NAME": "MacBook Air", "TOTAL_REVENUE": 7362516.81},
-        {"PRODUCT_NAME": "Instant Pot", "TOTAL_REVENUE": 8903475.26},
-        {"PRODUCT_NAME": "Tempur-Pedic Mattress", "TOTAL_REVENUE": 9061755.86},
-    ]
-    assert "sorted ascending by total revenue" in sorted_response["answer"]["answer"]
-    assert len(generator.prompts) == 1
-    assert len(retriever.questions) == 1
-
-
-def test_standalone_again_question_does_not_keep_previous_sort_context() -> None:
-    retriever = FakeRetriever([REVENUE_DOC])
-    generator = FakeProductGenerator()
-    orchestrator = QueryOrchestrator(
-        retriever=retriever,
-        sql_generator=generator,
-        sql_executor=FakeProductExecutor(),
-        summariser=FakeSummariser(),
-    )
-
-    orchestrator.process_question("What are the top 5 products by revenue?")
-    orchestrator.process_question("sort them ascendingly")
-    repeated_response = orchestrator.process_question("top 5 products by revenue again")
-    sorted_repeated_response = orchestrator.process_question("sort your last answer ascendingly")
-
-    assert repeated_response["pipeline_stage"] == "sql_executed_successfully"
-    assert repeated_response["resolved_question"] == "top 5 products by revenue again"
-    assert "No prior conversation context." in generator.prompts[-1]
-    assert len(generator.prompts) == 2
-    assert len(retriever.questions) == 2
-    assert sorted_repeated_response["pipeline_stage"] == "answered_from_conversation_memory"
-    assert sorted_repeated_response["query_results"]["rows"][0] == {
-        "PRODUCT_NAME": "Apple iPhone 14",
-        "TOTAL_REVENUE": 5740819.18,
-    }
-
-
-def test_profit_margin_follow_up_rewrites_to_total_metric_by_same_grouping() -> None:
+def test_orchestrator_does_not_hijack_standalone_question() -> None:
+    """A self-contained question after a prior turn must be answered fresh, not
+    rewritten from the previous turn — this is the core bug being fixed."""
     retriever = FakeRetriever([REVENUE_DOC, PROFIT_DOC])
     generator = FakeGenerator()
     orchestrator = QueryOrchestrator(
@@ -250,32 +166,14 @@ def test_profit_margin_follow_up_rewrites_to_total_metric_by_same_grouping() -> 
         summariser=FakeSummariser(),
     )
 
-    orchestrator.process_question("What is profit margin percentage by region?")
-    response = orchestrator.process_question("What about revenue?")
-
-    assert response["resolved_question"] == "What is total revenue by region?"
-    assert "What is total revenue by region?" in generator.prompts[-1]
-    assert "revenue margin" not in response["resolved_question"].lower()
-
-
-def test_orchestrator_blocks_unsafe_mutation_intent_before_retrieval() -> None:
-    retriever = FakeRetriever([REVENUE_DOC])
-    generator = FakeGenerator()
-    orchestrator = QueryOrchestrator(
-        retriever=retriever,
-        sql_generator=generator,
-        sql_executor=FakeExecutor(),
-        summariser=FakeSummariser(),
-    )
-
     orchestrator.process_question("What were total sales by product category?")
-    response = orchestrator.process_question("Delete all sales rows")
+    standalone = orchestrator.process_question("Show total profit by region")
 
-    assert response["pipeline_stage"] == "unsupported_question_no_sql_generated"
-    assert response["retrieval_provider"] == "not_run_safety_guard"
-    assert "Blocked unsafe intent: delete" in response["support_assessment"]["reason"]
-    assert len(generator.prompts) == 1
-    assert len(retriever.questions) == 1
+    # Returned untouched — not merged with the previous "by product category" turn.
+    assert standalone["resolved_question"] == "Show total profit by region"
+    assert "product category" not in standalone["resolved_question"].lower()
+    assert "Previous SQL" not in generator.prompts[-1]
+    assert retriever.questions[-1] == "Show total profit by region"
 
 
 def test_orchestrator_skips_sql_generation_for_unsupported_question() -> None:

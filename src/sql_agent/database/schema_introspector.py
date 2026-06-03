@@ -1,10 +1,8 @@
 """Pulls live schema from the database.
 
 Owner: Hassan
-Status: placeholder — implement during the hackathon.
+Status: INTERFACE SPEC. Schema/KPI context is served from
+`data/placeholder_docs.json` via `app/rag/retriever.py`; live introspection
+is the production swap.
 
-TODO:
-- Define the public interface here
-- Implement the logic
-- Write tests in tests/unit/test_schema_introspector.py
 """

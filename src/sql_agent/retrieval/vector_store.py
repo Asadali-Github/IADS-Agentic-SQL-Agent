@@ -1,7 +1,9 @@
 """Vector store interface and Oracle 23ai implementation.
 
 Owner: Abdulqoyum
-Status: placeholder — implement during the hackathon.
+Status: EXTENSION POINT. Oracle 23ai Vector Search backend. Offline retrieval
+uses an in-memory lexical index (`app/rag/embeddings.py`) and `row_fallback`
+uses lexical similarity -- both swappable for this in production.
 
 Stores **two indexed namespaces**:
   1. Schema descriptions — used by schema_retriever.py

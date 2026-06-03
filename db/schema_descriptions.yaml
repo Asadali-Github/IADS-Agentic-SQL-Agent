@@ -1,56 +1,90 @@
-# Schema descriptions — the "features" the RAG layer embeds.
-# Status: scaffold — fill in during the hackathon.
-# Owner: Asad (data modelling) + Abdul Qayyum (keeping in sync with db/ddl)
+# ============================================================================
+# schema_descriptions.yaml
+# Owner: Asad
 #
-# One entry per table. Each table has:
-#   description : 1–2 sentences in business language
-#   primary_key : column name
-#   columns     : list of column descriptions
+# Business-language description of every table and column in the demo schema.
+# This is the text the RAG layer (Zayad / app.rag) embeds, so description quality
+# directly drives retrieval -> SQL quality. Keep `make refresh-schema-descriptions`
+# in sync with db/ddl/01_create_tables.sql.
 #
-# Quality bar: a non-technical reader should be able to understand the
-# meaning of every column from the description alone. Mention units, time
-# zones, currencies, encoding standards.
+# Dataset: product_sales — a 200,000-row US retail sales fact table.
+# Currency: USD. Dates span 2023-01-01 .. 2024-12-31.
+# ============================================================================
+version: 1
 
-tables: []
+tables:
 
-# Example structure (uncomment and adapt):
-#
-# tables:
-#   - name: customers
-#     description: |
-#       One row per customer account. Created when the user first signs up.
-#       A customer can have zero or many orders.
-#     primary_key: customer_id
-#     columns:
-#       - name: customer_id
-#         type: NUMBER
-#         description: Surrogate primary key. Not exposed externally.
-#       - name: full_name
-#         type: VARCHAR2(200)
-#         description: Customer's display name, free text, may contain unicode.
-#       - name: country_code
-#         type: CHAR(2)
-#         description: ISO 3166-1 alpha-2 country code. e.g. GB, US, DE.
-#         sample_values: ["GB", "US", "DE", "FR"]
-#       - name: created_at
-#         type: TIMESTAMP
-#         description: When the account was created, UTC.
-#
-#   - name: orders
-#     description: |
-#       One row per completed order. Joins to customers via customer_id.
-#     primary_key: order_id
-#     columns:
-#       - name: order_id
-#         type: NUMBER
-#         description: Surrogate primary key.
-#       - name: customer_id
-#         type: NUMBER
-#         description: Foreign key to customers.customer_id.
-#         foreign_key: customers.customer_id
-#       - name: order_date
-#         type: DATE
-#         description: Date the order was placed (no time component).
-#       - name: total_gbp
-#         type: NUMBER(12,2)
-#         description: Total order value in pounds sterling, including VAT.
+  product_sales:
+    description: >-
+      One row per order line of a US retail sales dataset. Denormalised single
+      fact table - every sales question (revenue, profit, units, by region /
+      category / date) is answered from here, no joins required.
+    grain: One row per order line.
+    row_count: 200000
+    columns:
+      order_id:
+        description: Unique identifier for an order line.
+        type: NUMBER
+        pk: true
+      order_date:
+        description: Calendar date the order was placed. Used for all date filtering.
+        type: DATE
+        timezone: not specified (naive calendar date)
+        range: 2023-01-01 to 2024-12-31
+      customer_name:
+        description: Customer full name. Personal data - never surface in logs unredacted.
+        type: VARCHAR2(200)
+        pii: true
+        cardinality: ~120000 distinct
+      city:
+        description: City of the customer / order.
+        type: VARCHAR2(100)
+      state:
+        description: US state the order was placed in.
+        type: VARCHAR2(100)
+        cardinality: 47 distinct
+        sample_values: [California, Texas, Florida, New York, Illinois]
+      region:
+        description: US sales region. Low-cardinality - good for grouping.
+        type: VARCHAR2(20)
+        sample_values: [Centre, East, South, West]
+      country:
+        description: Country of sale. Constant in this dataset.
+        type: VARCHAR2(60)
+        sample_values: [United States]
+      category:
+        description: Top-level product category.
+        type: VARCHAR2(60)
+        sample_values: [Accessories, Clothing & Apparel, Electronics, Home & Furniture]
+      sub_category:
+        description: Product sub-category (19 distinct).
+        type: VARCHAR2(60)
+        sample_values: [Laptops, Smartphones, Footwear, Furniture, Home Appliances, Sportswear, TVs & Audio]
+      product_name:
+        description: Product name (49 distinct).
+        type: VARCHAR2(120)
+        sample_values: [Apple iPhone 14, Nike Air Force 1, Bose Soundbar, Phone Case]
+      quantity:
+        description: Units sold on this order line.
+        type: NUMBER(6)
+        units: units
+        range: 1 to 11
+      unit_price:
+        description: Price per unit.
+        type: NUMBER(10,2)
+        currency: USD
+        units: US dollars
+      revenue:
+        description: >-
+          Total line revenue (= quantity * unit_price). The canonical
+          sales / revenue measure - SUM this for revenue questions.
+        type: NUMBER(12,2)
+        currency: USD
+        units: US dollars
+      profit:
+        description: >-
+          Total line profit after costs. The canonical margin measure -
+          SUM for total profit, or profit/revenue for margin %.
+        type: NUMBER(12,2)
+        currency: USD
+        units: US dollars
