@@ -20,11 +20,11 @@ full methodology.
 
 ```json
 {
-  "id": "q001",
-  "question": "Which product category generated the most revenue last quarter?",
-  "expected_sql": "SELECT ... FETCH FIRST 5 ROWS ONLY",
-  "expected_rows": [["Electronics", 4200000]],
-  "expected_tables": ["orders", "products"],
+  "id": "q009",
+  "question": "What is the total revenue by product category, highest first?",
+  "expected_sql": "SELECT category, SUM(revenue) AS revenue FROM product_sales GROUP BY category ORDER BY revenue DESC",
+  "expected_rows": [["Electronics", 57485698.06], ["Home & Furniture", 47674426.96]],
+  "expected_tables": ["product_sales"],
   "difficulty": "medium",
   "order_matters": true,
   "tags": ["aggregate", "filter", "order-by"]

@@ -49,7 +49,7 @@ def _strip(v: str) -> str:
 def _to_iso_date(v: str) -> str:
     """Best-effort normalise common date formats to YYYY-MM-DD."""
     v = _strip(v)
-    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%Y/%m/%d"):
+    for fmt in ("%Y-%m-%d", "%m-%d-%y", "%m-%d-%Y", "%d/%m/%Y", "%m/%d/%Y", "%Y/%m/%d"):
         try:
             from datetime import datetime
             return datetime.strptime(v, fmt).strftime("%Y-%m-%d")
@@ -58,26 +58,35 @@ def _to_iso_date(v: str) -> str:
     return v
 
 
-# ---- Declare the demo tables here (provisional example) --------------------
+# ---- Declare the demo tables here (real product_sales dataset) -------------
+# Source headers carry stray spaces (e.g. " Revenue "); rename maps them to clean
+# snake_case columns. Order_Date is MM-DD-YY in the raw file -> ISO YYYY-MM-DD.
+_NUM2 = lambda v: f"{float(_strip(v) or 0):.2f}"  # noqa: E731
+
 TABLES: list[TableSpec] = [
     TableSpec(
-        source="customers_raw.csv",
-        output="customers.csv",
-        rename={"id": "customer_id", "name": "full_name", "country": "country_code"},
-        columns=["customer_id", "full_name", "country_code", "created_at"],
-        transforms={"country_code": lambda v: _strip(v).upper()[:2], "created_at": _to_iso_date},
-        dedupe_on="customer_id",
-        required=["customer_id", "full_name"],
-    ),
-    TableSpec(
-        source="orders_raw.csv",
-        output="orders.csv",
-        rename={"id": "order_id", "cust_id": "customer_id", "amount": "total_gbp"},
-        columns=["order_id", "customer_id", "order_date", "status", "total_gbp"],
-        transforms={"order_date": _to_iso_date, "status": lambda v: _strip(v).lower(),
-                    "total_gbp": lambda v: f"{float(_strip(v) or 0):.2f}"},
+        source="product_sales_dataset_final.csv",
+        output="product_sales.csv",
+        rename={
+            "Order_ID": "order_id", "Order_Date": "order_date",
+            "Customer_Name": "customer_name", "City": "city", "State": "state",
+            "Region": "region", "Country": "country", "Category": "category",
+            "Sub_Category": "sub_category", "Product_Name": "product_name",
+            "Quantity": "quantity", "Unit_Price": "unit_price",
+            "Revenue": "revenue", "Profit": "profit",
+        },
+        columns=["order_id", "order_date", "customer_name", "city", "state",
+                 "region", "country", "category", "sub_category", "product_name",
+                 "quantity", "unit_price", "revenue", "profit"],
+        transforms={
+            "order_date": _to_iso_date,
+            "quantity": lambda v: str(int(float(_strip(v) or 0))),
+            "unit_price": _NUM2, "revenue": _NUM2, "profit": _NUM2,
+            "region": _strip, "category": _strip, "sub_category": _strip,
+            "country": _strip, "state": _strip,
+        },
         dedupe_on="order_id",
-        required=["order_id", "customer_id", "total_gbp"],
+        required=["order_id", "order_date", "revenue"],
     ),
 ]
 
@@ -96,7 +105,7 @@ def process(spec: TableSpec) -> tuple[int, int, int]:
     out_rows: list[dict[str, str]] = []
     dropped = 0
     for raw in rows:
-        rec = {spec.rename.get(k, k): _strip(v) for k, v in raw.items()}
+        rec = {spec.rename.get(k, spec.rename.get(_strip(k), _strip(k))): _strip(v) for k, v in raw.items()}
         for col, fn in spec.transforms.items():
             if col in rec:
                 try:

@@ -29,6 +29,7 @@ from typing import Any, Optional, Protocol, Sequence, Union
 from sql_agent.core.models import (
     AnswerSummary,
     CandidateSQL,
+    ChartSpec,
     ExecutionResult,
     Question,
     RetrievedSchema,
@@ -44,6 +45,59 @@ from sql_agent.safety import pii_filter
 _MAX_PREVIEW_ROWS = 20      # at or below this, show the rows themselves
 _MAX_SAMPLE_ROWS = 5        # above the cap, show only this many sample rows
 _LOW_CARDINALITY = 12       # show top-value counts for text columns at/below this
+
+
+_AGG_DESC = {"SUM": "a total", "AVG": "an average", "COUNT": "a count"}
+
+
+def detect_clarification(question: str):
+    """Return a clarifying question if a term in `question` is ambiguous, else None.
+
+    Uses the business glossary: when a phrase resolves to two different canonical
+    terms with near-identical confidence but different meanings (different target
+    column or different default aggregation), we ask rather than guess. Example:
+    "margin" could mean total profit (a sum) or profit margin (profit / revenue).
+    """
+    try:
+        from sql_agent.retrieval.glossary import GlossaryResolver, _ngrams, _norm
+    except Exception:  # noqa: BLE001 - glossary optional
+        return None
+    try:
+        resolver = GlossaryResolver()
+    except Exception:  # noqa: BLE001 - glossary file missing
+        return None
+
+    for span in _ngrams(_norm(question or ""), max_n=3):
+        matches = resolver.resolve(span, top_k=2, threshold=0.85)
+        if len(matches) < 2:
+            continue
+        a, b = matches[0], matches[1]
+        # Genuine ambiguity = the SAME surface word maps to two different meanings
+        # (not two different terms appearing in one phrase).
+        same_surface = a.matched_via == b.matched_via
+        close = abs(a.score - b.score) <= 0.08 and a.score >= 0.9
+        clean = a.method in ("exact", "contains") and b.method in ("exact", "contains")
+        different = a.canonical != b.canonical and (
+            a.maps_to != b.maps_to or a.default_aggregation != b.default_aggregation
+        )
+        if same_surface and close and clean and different:
+            da = _AGG_DESC.get(a.default_aggregation or "", a.canonical)
+            db = _AGG_DESC.get(b.default_aggregation or "", b.canonical)
+            return (f"By '{a.matched_via}', did you mean {a.canonical} ({da}) "
+                    f"or {b.canonical} ({db})?")
+    return None
+
+
+def confidence_score(execution_ok: bool, n_rows: int, has_clarification: bool) -> float:
+    """A simple, honest confidence heuristic in [0, 1]."""
+    if not execution_ok:
+        return 0.2
+    score = 0.9
+    if has_clarification:
+        score = min(score, 0.55)
+    if n_rows == 0:
+        score = min(score, 0.5)
+    return round(score, 2)
 
 
 class LLMClient(Protocol):
@@ -149,6 +203,144 @@ def profile_result(columns: Sequence[str], rows: Sequence[Sequence[Any]]) -> dic
     return out
 
 
+_TEMPORAL_HINTS = ("month", "date", "year", "day", "quarter", "week", "period")
+_MONEY_HINTS = ("revenue", "profit", "price", "sales", "spend", "amount", "cost", "value")
+_PCT_HINTS = ("pct", "percent", "margin", "share", "ratio", "rate", "growth")
+
+
+def _is_temporal(name: str) -> bool:
+    n = str(name).lower()
+    return any(h in n for h in _TEMPORAL_HINTS)
+
+
+def _is_money(name: str) -> bool:
+    n = str(name).lower()
+    return any(h in n for h in _MONEY_HINTS) and not any(h in n for h in _PCT_HINTS)
+
+
+def _is_pct(name: str) -> bool:
+    return any(h in str(name).lower() for h in _PCT_HINTS)
+
+
+def _humanize_money(v: float) -> str:
+    a = abs(v)
+    if a >= 1e9:
+        return f"${v/1e9:.1f}B"
+    if a >= 1e6:
+        return f"${v/1e6:.1f}M"
+    if a >= 1e3:
+        return f"${v/1e3:.1f}K"
+    return f"${v:,.2f}"
+
+
+def _fmt(colname: str, v) -> str:
+    if not isinstance(v, (int, float)) or isinstance(v, bool):
+        return str(v)
+    if _is_pct(colname):
+        return f"{v:.1f}%"
+    if _is_money(colname):
+        return _humanize_money(float(v))
+    return f"{v:,.0f}" if float(v).is_integer() else f"{v:,.2f}"
+
+
+def _column_roles(columns, rows, profile=None):
+    """Return (dimension_col_idx, measure_col_idx, is_temporal). Best-effort."""
+    profile = profile or profile_result(columns, rows)
+    dim_idx = measure_idx = None
+    _skip = ("rank", "rn", "rnk", "quartile", "ntile")
+    for i, c in enumerate(profile["columns"]):
+        name = c["name"]
+        low = str(name).lower()
+        if c["dtype"] == "numeric":
+            # a measure is a numeric column that is not an id, rank, or a
+            # temporal key (month/year from EXTRACT belongs on the axis).
+            if (measure_idx is None and not low.endswith("id")
+                    and low not in _skip and not _is_temporal(name)):
+                measure_idx = i
+        elif dim_idx is None:
+            dim_idx = i
+    # a numeric temporal column (e.g. month from EXTRACT) can be the dimension
+    if dim_idx is None:
+        for i, c in enumerate(profile["columns"]):
+            if _is_temporal(c["name"]) and i != measure_idx:
+                dim_idx = i
+                break
+    temporal = dim_idx is not None and _is_temporal(profile["columns"][dim_idx]["name"])
+    return dim_idx, measure_idx, temporal
+
+
+def generate_insights(question, columns, rows, profile=None):
+    """Deterministic business insights computed from the rows (no hallucination)."""
+    if not rows:
+        return []
+    profile = profile or profile_result(columns, rows)
+    # single scalar -> the answer already states it; no extra insight
+    if len(rows) == 1 and len(columns) == 1:
+        return []
+    dim_idx, measure_idx, temporal = _column_roles(columns, rows, profile)
+    if dim_idx is None or measure_idx is None:
+        return []
+    dname, mname = columns[dim_idx], columns[measure_idx]
+    pairs = [(r[dim_idx], r[measure_idx]) for r in rows
+             if dim_idx < len(r) and measure_idx < len(r) and isinstance(r[measure_idx], (int, float)) and not isinstance(r[measure_idx], bool)]
+    if not pairs:
+        return []
+    insights = []
+
+    if temporal:
+        first_x, first_v = pairs[0]
+        last_x, last_v = pairs[-1]
+        if first_v:
+            change = (last_v - first_v) / abs(first_v) * 100
+            direction = "rose" if change >= 0 else "fell"
+            insights.append(f"{mname} {direction} {abs(change):.0f}% from {first_x} ({_fmt(mname, first_v)}) to {last_x} ({_fmt(mname, last_v)}).")
+        peak_x, peak_v = max(pairs, key=lambda p: p[1])
+        insights.append(f"{mname} peaked at {peak_x} with {_fmt(mname, peak_v)}.")
+        return insights[:3]
+
+    ordered = sorted(pairs, key=lambda p: p[1], reverse=True)
+    top_x, top_v = ordered[0]
+    bottom_x, bottom_v = ordered[-1]
+    if _is_pct(mname):
+        # Share-of-total is meaningless for a percentage measure; just rank.
+        insights.append(f"{top_x} has the highest {mname} at {_fmt(mname, top_v)}.")
+        if bottom_x != top_x:
+            insights.append(f"{bottom_x} has the lowest at {_fmt(mname, bottom_v)} "
+                            f"({top_v - bottom_v:.1f} points below {top_x}).")
+        return insights[:3]
+    total = sum(v for _, v in pairs)
+    if total:
+        share = top_v / total * 100
+        insights.append(f"{top_x} leads {mname} with {_fmt(mname, top_v)} ({share:.0f}% of the total).")
+        if share >= 40:
+            insights.append(f"Results are concentrated: {top_x} alone is over {share:.0f}% of {mname}.")
+        elif len(ordered) >= 3:
+            top3 = sum(v for _, v in ordered[:3]) / total * 100
+            insights.append(f"The top 3 {dname}s account for {top3:.0f}% of {mname}.")
+    if len(ordered) >= 2 and bottom_x != top_x:
+        insights.append(f"{bottom_x} is lowest at {_fmt(mname, bottom_v)}.")
+    return insights[:3]
+
+
+def suggest_chart(question, columns, rows, profile=None):
+    """Recommend a chart shape for the result set."""
+    if not rows or (len(rows) == 1 and len(columns) == 1):
+        return ChartSpec(type="none", reason="A single value is best shown as text.")
+    profile = profile or profile_result(columns, rows)
+    dim_idx, measure_idx, temporal = _column_roles(columns, rows, profile)
+    if dim_idx is None or measure_idx is None:
+        return ChartSpec(type="none", reason="No clear category/measure pair to plot.")
+    x, y = columns[dim_idx], columns[measure_idx]
+    title = (question or "").strip().rstrip("?")[:80] or None
+    if temporal:
+        return ChartSpec(type="line", x=x, y=y, title=title, reason="A measure over time reads best as a line.")
+    if _is_pct(y):
+        return ChartSpec(type="bar", x=x, y=y, title=title, reason="Comparing percentages across categories.")
+    if len(rows) <= 6:
+        return ChartSpec(type="pie", x=x, y=y, title=title, reason="A few categories summing to a total suit a pie.")
+    return ChartSpec(type="bar", x=x, y=y, title=title, reason="Comparing a measure across categories.")
+
+
 def _format_profile(profile: dict) -> str:
     """Render a profile as a compact, PII-scrubbed text block for the prompt."""
     lines = [f"rows: {profile['row_count']}"]
@@ -238,6 +430,9 @@ class Summariser:
                 explanation=[f"The database reported: {execution.error or 'an unknown error'}."],
                 tables_used=tables,
                 sql=sql_text,
+                chart=ChartSpec(type="none", reason="No result to chart."),
+                clarification=detect_clarification(q_text),
+                confidence=confidence_score(False, 0, False),
             )
             return self._finalise(summary)
 
@@ -251,11 +446,16 @@ class Summariser:
             answer = self._fallback_answer(q_text, columns, rows)
             explanation = self._fallback_explanation(sql_text, tables)
 
+        clarification = detect_clarification(q_text)
         summary = AnswerSummary(
             answer=answer,
             explanation=explanation,
+            insights=generate_insights(q_text, columns, rows),
+            chart=suggest_chart(q_text, columns, rows),
+            clarification=clarification,
             tables_used=tables,
             sql=sql_text,
+            confidence=confidence_score(True, len(rows), bool(clarification)),
         )
         return self._finalise(summary)
 

@@ -230,6 +230,10 @@ def scrub_summary(summary: Any) -> Any:
     data = summary.model_dump()
     data["answer"] = scrub(data.get("answer", ""))
     data["explanation"] = [scrub(b) for b in data.get("explanation", [])]
+    if data.get("insights"):
+        data["insights"] = [scrub(b) for b in data["insights"]]
+    if data.get("clarification"):
+        data["clarification"] = scrub(data["clarification"])
     return summary.__class__(**data)
 
 

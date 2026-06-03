@@ -1,62 +1,90 @@
+# ============================================================================
+# schema_descriptions.yaml
+# Owner: Asad
+#
+# Business-language description of every table and column in the demo schema.
+# This is the text the RAG layer (Zayad / app.rag) embeds, so description quality
+# directly drives retrieval -> SQL quality. Keep `make refresh-schema-descriptions`
+# in sync with db/ddl/01_create_tables.sql.
+#
+# Dataset: product_sales — a 200,000-row US retail sales fact table.
+# Currency: USD. Dates span 2023-01-01 .. 2024-12-31.
+# ============================================================================
 version: 1
+
 tables:
-  customers:
-    description: One row per registered customer. The master record every order links
-      back to.
-    grain: One row per customer.
-    columns:
-      customer_id:
-        description: Unique identifier for a customer; referenced by orders.
-        type: NUMBER
-        pk: true
-      full_name:
-        description: Customer's full display name. May be personal data - never surface
-          in logs unredacted.
-        type: VARCHAR2(200)
-        pii: true
-      country_code:
-        description: Country the customer registered from.
-        type: CHAR(2)
-        units: ISO 3166-1 alpha-2
-        sample_values:
-        - GB
-        - US
-        - FR
-        - DE
-        - IE
-      created_at:
-        description: When the customer account was created.
-        type: TIMESTAMP
-        timezone: UTC
-  orders:
-    description: One row per placed order. The central fact table for revenue questions.
-    grain: One row per order.
+
+  product_sales:
+    description: >-
+      One row per order line of a US retail sales dataset. Denormalised single
+      fact table - every sales question (revenue, profit, units, by region /
+      category / date) is answered from here, no joins required.
+    grain: One row per order line.
+    row_count: 200000
     columns:
       order_id:
-        description: Unique identifier for an order.
+        description: Unique identifier for an order line.
         type: NUMBER
         pk: true
-      customer_id:
-        description: The customer who placed the order; foreign key to customers.
-        type: NUMBER
-        fk: customers.customer_id
       order_date:
         description: Calendar date the order was placed. Used for all date filtering.
         type: DATE
-        timezone: UTC
-      status:
-        description: Lifecycle state of the order.
+        timezone: not specified (naive calendar date)
+        range: 2023-01-01 to 2024-12-31
+      customer_name:
+        description: Customer full name. Personal data - never surface in logs unredacted.
+        type: VARCHAR2(200)
+        pii: true
+        cardinality: ~120000 distinct
+      city:
+        description: City of the customer / order.
+        type: VARCHAR2(100)
+      state:
+        description: US state the order was placed in.
+        type: VARCHAR2(100)
+        cardinality: 47 distinct
+        sample_values: [California, Texas, Florida, New York, Illinois]
+      region:
+        description: US sales region. Low-cardinality - good for grouping.
         type: VARCHAR2(20)
-        sample_values:
-        - placed
-        - paid
-        - shipped
-        - delivered
-        - cancelled
-        - refunded
-      total_gbp:
-        description: Total order value. The canonical "revenue" measure - SUM this
-          for revenue/sales/turnover questions.
+        sample_values: [Centre, East, South, West]
+      country:
+        description: Country of sale. Constant in this dataset.
+        type: VARCHAR2(60)
+        sample_values: [United States]
+      category:
+        description: Top-level product category.
+        type: VARCHAR2(60)
+        sample_values: [Accessories, Clothing & Apparel, Electronics, Home & Furniture]
+      sub_category:
+        description: Product sub-category (19 distinct).
+        type: VARCHAR2(60)
+        sample_values: [Laptops, Smartphones, Footwear, Furniture, Home Appliances, Sportswear, TVs & Audio]
+      product_name:
+        description: Product name (49 distinct).
+        type: VARCHAR2(120)
+        sample_values: [Apple iPhone 14, Nike Air Force 1, Bose Soundbar, Phone Case]
+      quantity:
+        description: Units sold on this order line.
+        type: NUMBER(6)
+        units: units
+        range: 1 to 11
+      unit_price:
+        description: Price per unit.
+        type: NUMBER(10,2)
+        currency: USD
+        units: US dollars
+      revenue:
+        description: >-
+          Total line revenue (= quantity * unit_price). The canonical
+          sales / revenue measure - SUM this for revenue questions.
         type: NUMBER(12,2)
-        currency: GBP
-        units: pounds sterling
+        currency: USD
+        units: US dollars
+      profit:
+        description: >-
+          Total line profit after costs. The canonical margin measure -
+          SUM for total profit, or profit/revenue for margin %.
+        type: NUMBER(12,2)
+        currency: USD
+        units: US dollars

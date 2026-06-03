@@ -62,6 +62,13 @@ def _scenarios():
                          rows=[["Ada Lovelace", "ada@maths.org", 18420.0]],
                          row_count=1, success=True),
          RetrievedSchema(tables=["customers"])),
+        ("ambiguous term (clarification)",
+         "What is the average margin by region?",
+         "SELECT region, ROUND(SUM(profit)/SUM(revenue)*100, 2) AS margin FROM product_sales GROUP BY region",
+         ExecutionResult(columns=["region", "margin"],
+                         rows=[["South", 23.58], ["West", 22.94], ["Centre", 22.43], ["East", 20.5]],
+                         row_count=4, success=True),
+         RetrievedSchema(tables=["product_sales"])),
         ("failed execution",
          "Average basket size?",
          "SELECT AVG(total_gbp) FROM ordrs",
@@ -97,9 +104,19 @@ def main() -> int:
               f"(+ deterministic profile)")
         out = summ.summarise(question, sql, ex, schema)
         print(f"ANSWER:      {out.answer}")
+        print(f"CONFIDENCE:  {out.confidence}")
+        if out.clarification:
+            print(f"CLARIFY:     {out.clarification}")
+        if out.insights:
+            print("INSIGHTS:")
+            for i in out.insights:
+                print(f"  * {i}")
         print("EXPLANATION:")
         for b in out.explanation:
             print(f"  - {b}")
+        if out.chart:
+            print(f"CHART:       {out.chart.type}"
+                  + (f" (x={out.chart.x}, y={out.chart.y})" if out.chart.type != 'none' else ""))
         print(f"TABLES USED: {out.tables_used}")
     print("=" * 72)
     return 0

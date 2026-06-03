@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
@@ -116,6 +116,20 @@ class RetrievedSchema(BaseModel):
 # ---------------------------------------------------------------------------
 # Produced contracts (my slice emits them)
 # ---------------------------------------------------------------------------
+class ChartSpec(BaseModel):
+    """A recommended chart for a result set - the UI (Mehdi) renders it.
+
+    The summariser decides the chart *shape* from the data; rendering is the
+    frontend's job. type='none' means a plain table is best.
+    """
+
+    type: Literal["bar", "line", "pie", "scatter", "none"] = "none"
+    x: Optional[str] = Field(None, description="Column for the x-axis / categories.")
+    y: Optional[str] = Field(None, description="Column for the y-axis / values (the measure).")
+    title: Optional[str] = None
+    reason: Optional[str] = Field(None, description="Why this chart fits the data.")
+
+
 class AnswerSummary(BaseModel):
     """Natural-language answer the summariser returns to the UI."""
 
@@ -123,6 +137,14 @@ class AnswerSummary(BaseModel):
     explanation: list[str] = Field(
         default_factory=list,
         description="2-4 plain-English bullets explaining how the SQL works.",
+    )
+    insights: list[str] = Field(
+        default_factory=list,
+        description="Deterministic business insights derived from the rows (shares, trends).",
+    )
+    chart: Optional["ChartSpec"] = Field(None, description="Recommended chart for the result.")
+    clarification: Optional[str] = Field(
+        None, description="A clarifying question when the request is ambiguous (else None)."
     )
     tables_used: list[str] = Field(
         default_factory=list, description="Business-readable tables the query drew on."

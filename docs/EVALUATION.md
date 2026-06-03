@@ -22,11 +22,11 @@ in the project: without it nothing can be measured. Each line is one
 | `order_matters` | `true` when the reference query has a meaningful `ORDER BY` (top-N, ranking) |
 | `tags` | SQL patterns exercised, e.g. `["join","window"]` |
 
-The current file holds 21 questions (7 easy / 8 medium / 6 hard) spanning counts,
-filters, joins, group-by, date logic, `HAVING`, subqueries, CTEs and window
-functions. It is built against the **provisional** `customers` / `orders` schema;
-the `expected_rows` are illustrative and must be **recaptured against the seeded
-Oracle database** during the demo dry-run (see "Capturing expected rows" below).
+The current file holds 22 questions (7 easy / 8 medium / 7 hard) spanning counts,
+filters, group-by, date logic, `HAVING`, subqueries and window functions, built
+against the real **`product_sales`** dataset (200,000 rows, USD). The
+`expected_rows` are **real** — captured by executing each reference query against
+the cleaned seed (`db/seed/product_sales.csv`) via `scripts/capture_golden_rows.py`.
 
 ## Metrics
 
@@ -75,13 +75,21 @@ cheap and idempotent — intended to be run hourly during Day 2.
 
 ## Capturing expected rows
 
-Because we target Oracle/OCI, `expected_rows` cannot be generated offline. Once
-`db/ddl/01_create_tables.sql` is final and `make seed-db` has loaded the data:
+`expected_rows` are generated reproducibly by `scripts/capture_golden_rows.py`,
+which loads `db/seed/product_sales.csv` into DuckDB and executes each query's
+Oracle reference SQL (transpiled oracle->duckdb via sqlglot). Aggregates that
+aren't exact (`AVG`, margins) are wrapped in `ROUND(..., 2)` in the reference SQL
+so the captured rows match Oracle regardless of engine.
 
-1. Run each `expected_sql` against the seeded database.
-2. Paste the returned rows into the matching golden line's `expected_rows`.
-3. Set `order_matters` to `true` for any query whose `ORDER BY` is meaningful.
-4. Re-run `make benchmark` and commit the dataset plus the result JSON.
+To regenerate after editing the golden queries or reseeding:
+
+```bash
+python scripts/capture_golden_rows.py     # rewrites golden_queries.jsonl with fresh rows
+make benchmark                            # score the agent and commit the result JSON
+```
+
+Once Abdul has seeded the same cleaned data into Oracle, the captured rows should
+match the live database; differences would themselves be a finding worth flagging.
 
 ## How to add a query
 

@@ -1,4 +1,7 @@
-"""Tests for src/sql_agent/retrieval/glossary.py (glossary resolver)."""
+"""Tests for src/sql_agent/retrieval/glossary.py (glossary resolver).
+
+Targets the product_sales schema (revenue/profit/quantity in USD).
+"""
 
 from __future__ import annotations
 
@@ -9,17 +12,22 @@ def test_exact_synonym_maps_to_revenue():
     r = GlossaryResolver()
     m = r.resolve("turnover", top_k=1)[0]
     assert m.canonical == "revenue"
-    assert m.maps_to == "orders.total_gbp"
+    assert m.maps_to == "product_sales.revenue"
     assert m.default_aggregation == "SUM"
 
 
-def test_arr_hierarchy_and_variations():
+def test_profit_and_units_terms():
     r = GlossaryResolver()
-    for phrase in ("ARR", "annual recurring revenue", "subscription sales"):
-        m = r.resolve(phrase, top_k=1)[0]
-        assert m.canonical == "arr"
-        assert m.parent == "revenue"          # hierarchy preserved
-        assert m.maps_to == "orders.total_gbp"
+    assert r.resolve("margin", top_k=1)[0].maps_to == "product_sales.profit"
+    assert r.resolve("units", top_k=1)[0].maps_to == "product_sales.quantity"
+
+
+def test_profit_margin_hierarchy():
+    r = GlossaryResolver()
+    m = r.resolve("margin percent", top_k=1)[0]
+    assert m.canonical == "profit margin"
+    assert m.parent == "profit"           # hierarchy preserved
+    assert m.maps_to == "product_sales.profit"
 
 
 def test_fuzzy_match_handles_singular_plural():
@@ -31,10 +39,10 @@ def test_fuzzy_match_handles_singular_plural():
 
 def test_annotate_extracts_terms_and_targets():
     r = GlossaryResolver()
-    ann = r.annotate("What was our total turnover and number of orders last quarter?")
+    ann = r.annotate("What was our total turnover and number of orders by category?")
     assert "revenue" in ann["terms"]
     assert "order_count" in ann["terms"]
-    assert "orders.total_gbp" in ann["targets"]
+    assert "product_sales.revenue" in ann["targets"]
 
 
 def test_no_match_below_threshold():
@@ -43,47 +51,44 @@ def test_no_match_below_threshold():
 
 
 def test_embedder_hook_enables_semantic_match():
-    # A paraphrase with no shared surface form should miss lexically but hit
-    # via the embedder. Toy embedder: [money, people, order] keyword counts.
     money = {"revenue", "sales", "turnover", "income", "takings", "gross", "spend",
              "money", "earned", "pulled", "made"}
-    people = {"customer", "client", "buyer", "account", "shopper"}
-    orders = {"order", "orders", "basket"}
+    people = {"customer", "client", "buyer", "shopper"}
+    items = {"product", "item", "unit", "units"}
 
     def embed(text: str):
         toks = text.lower().split()
         return [sum(t in money for t in toks),
                 sum(t in people for t in toks),
-                sum(t in orders for t in toks)]
+                sum(t in items for t in toks)]
 
     phrase = "money the business pulled in"
-    lexical_only = GlossaryResolver().resolve(phrase, threshold=0.6)
-    assert lexical_only == []  # nothing matches lexically
-
+    assert GlossaryResolver().resolve(phrase, threshold=0.6) == []  # misses lexically
     semantic = GlossaryResolver(embedder=embed).resolve(phrase, top_k=1, threshold=0.6)
-    assert semantic, "embedder should enable a semantic match"
-    assert semantic[0].method == "semantic"
-    assert semantic[0].maps_to == "orders.total_gbp"  # a money-family term
+    assert semantic and semantic[0].method == "semantic"
+    assert semantic[0].maps_to == "product_sales.revenue"
 
 
-# --- query expansion hook for the retriever ---------------------------------
 def test_expand_query_terms_appends_synonyms_and_target():
     from sql_agent.retrieval.glossary import expand_query_terms
     out = expand_query_terms("monthly sales by region")
-    assert out[0] == "monthly sales by region"          # original first
-    assert "revenue" in out                              # canonical appended
-    assert "orders.total_gbp" in out                    # physical target appended
-    assert len(out) == len(set(out))                    # deduped
+    assert out[0] == "monthly sales by region"
+    assert "revenue" in out
+    assert "product_sales.revenue" in out
+    assert len(out) == len(set(out))
 
 
-def test_expand_query_terms_climbs_hierarchy_for_arr():
+def test_expand_query_terms_climbs_hierarchy_for_margin():
     from sql_agent.retrieval.glossary import expand_query_terms
-    out = expand_query_terms("show me ARR trends")
-    assert "revenue" in out          # ARR's parent term added for recall
-    assert "orders.total_gbp" in out
+    # "profit" is not a literal word here, so the parent term must be appended.
+    out = expand_query_terms("margin percent by region")
+    assert "profit" in out                       # margin's parent term added
+    assert "product_sales.profit" in out
 
 
-def test_expand_query_terms_no_match_returns_query_only():
-    from sql_agent.retrieval.glossary import expand_query_terms
-    out = expand_query_terms("zzz nonsense qqq")
-    assert out == ["zzz nonsense qqq"]
+def test_enrich_query_terms_returns_string():
+    from sql_agent.retrieval.glossary import enrich_query_terms
+    s = enrich_query_terms("what was our revenue?")
+    assert s.startswith("what was our revenue?")
+    assert "product_sales.revenue" in s
+    assert enrich_query_terms("zzz nonsense qqq") == "zzz nonsense qqq"

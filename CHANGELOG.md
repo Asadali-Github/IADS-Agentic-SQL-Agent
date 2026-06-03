@@ -74,6 +74,33 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
 - Tests: 88 unit tests across metrics, benchmark, summariser (incl. adversarial),
   pii_filter, token_counter, glossary, ner_presidio.
 
+#### Answer enrichment (Asad) — "explain, insight, chart, ask"
+
+- `AnswerSummary` extended (additive) with `insights`, `chart` (`ChartSpec`),
+  `clarification`, and a populated `confidence`.
+- **Business insights**: deterministic, computed-in-code statements (top
+  contributor + % share, concentration, top-3 share, time-series trend / peak) —
+  no hallucinated numbers.
+- **Auto chart suggestion**: `suggest_chart()` picks bar / line / pie / none from
+  the result shape; `examples/chart_example.py` renders real PNGs.
+- **Confidence + clarification**: glossary-based ambiguity detection asks a
+  clarifying question for genuinely ambiguous terms (e.g. "margin" -> total
+  profit vs profit margin) and lowers confidence accordingly.
+- **Query suggestions**: `evaluation/datasets/suggested_questions.json` +
+  `sql_agent.suggestions.suggest_questions()` (glossary-ranked by partial input)
+  for the UI's "try one of these" buttons.
+
+### Changed
+
+- **Datasets migrated to the real `product_sales` dataset** (200k rows, USD).
+  `schema_descriptions.yaml`, `glossary.yaml`, `golden_queries.jsonl` (22, with
+  **real captured `expected_rows`**), `example_queries.jsonl` and the synthetic
+  set were rebuilt against it. `scripts/preprocess_raw_data.py` cleans the raw
+  CSV -> `db/seed/product_sales.csv`; `scripts/capture_golden_rows.py` captures
+  expected rows via DuckDB. Drafted `db/ddl/01_create_tables.sql` for
+  `product_sales` (co-owned with Abdul).
+- Fixed a truncated `[tool.pytest.ini_options]` section in `pyproject.toml`.
+
 ### Notes
 
 - Golden `expected_rows` are illustrative against the provisional `customers`/

@@ -1,0 +1,13 @@
+{
+  "_comment": "Curated question suggestions for the UI 'try one of these' buttons (Mehdi). Owner: Asad. Aligned to the product_sales dataset.",
+  "suggestions": [
+    {"label": "Top selling products", "question": "What are the top 5 products by total revenue?", "tags": ["product", "revenue", "top-n"]},
+    {"label": "Monthly revenue", "question": "What was the monthly revenue in 2024?", "tags": ["revenue", "time-series", "date"]},
+    {"label": "Revenue by region", "question": "What is the total revenue by region, highest first?", "tags": ["revenue", "region"]},
+    {"label": "Profit margin by region", "question": "What is the profit margin percentage by region?", "tags": ["profit", "margin", "region"]},
+    {"label": "Best categories", "question": "What is the total revenue by product category, highest first?", "tags": ["revenue", "category"]},
+    {"label": "Units sold by category", "question": "How many units were sold in each category?", "tags": ["units", "category"]},
+    {"label": "Top states", "question": "Which 10 states generated the most revenue?", "tags": ["revenue", "state", "top-n"]},
+    {"label": "Category share", "question": "Rank categories by revenue and show each one's share of total revenue.", "tags": ["revenue", "category", "share"]}
+  ]
+}

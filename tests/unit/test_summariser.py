@@ -168,3 +168,68 @@ def test_profile_handles_ragged_and_null_without_error():
     prof = profile_result(["a", "b", "c"], [[1], [None, 2], [3, 4, 5]])
     assert prof["row_count"] == 3
     assert len(prof["columns"]) == 3
+
+
+# --- insights / chart / clarification / confidence --------------------------
+from sql_agent.agents.summariser import (  # noqa: E402
+    confidence_score,
+    detect_clarification,
+    generate_insights,
+    suggest_chart,
+)
+
+
+def test_insights_top_contributor_and_share():
+    cols = ["region", "revenue"]
+    rows = [["East", 45.0], ["West", 36.0], ["Centre", 36.0], ["South", 25.0]]
+    ins = generate_insights("revenue by region", cols, rows)
+    assert any("East leads" in i for i in ins)
+    assert any("%" in i for i in ins)
+
+
+def test_insights_time_series_trend():
+    cols = ["month", "revenue"]
+    rows = [[1, 1000.0], [2, 1200.0], [3, 800.0]]
+    ins = generate_insights("monthly revenue", cols, rows)
+    assert any("peaked" in i for i in ins)
+
+
+def test_insights_empty_for_scalar():
+    assert generate_insights("count", ["n"], [[42]]) == []
+
+
+def test_chart_bar_line_pie_none():
+    assert suggest_chart("by category", ["category", "revenue"],
+                         [[f"c{i}", i] for i in range(10)]).type == "bar"
+    assert suggest_chart("monthly", ["month", "revenue"],
+                         [[1, 10], [2, 20]]).type == "line"
+    assert suggest_chart("few cats", ["region", "revenue"],
+                         [["A", 1], ["B", 2], ["C", 3]]).type == "pie"
+    assert suggest_chart("count", ["n"], [[42]]).type == "none"
+
+
+def test_clarification_flags_ambiguous_margin():
+    msg = detect_clarification("average margin by region")
+    assert msg and "margin" in msg and "profit margin" in msg
+
+
+def test_clarification_none_for_unambiguous():
+    assert detect_clarification("total revenue by region") is None
+    assert detect_clarification("how many orders are there") is None
+
+
+def test_confidence_heuristic():
+    assert confidence_score(True, 5, False) == 0.9
+    assert confidence_score(True, 5, True) <= 0.55     # ambiguity lowers it
+    assert confidence_score(False, 0, False) == 0.2    # failed execution
+    assert confidence_score(True, 0, False) <= 0.5     # empty result
+
+
+def test_summarise_populates_new_fields():
+    from sql_agent.core.models import ExecutionResult as ER
+    s = Summariser()
+    ex = ER(columns=["region", "revenue"],
+            rows=[["East", 45.0], ["West", 36.0], ["South", 25.0]], row_count=3, success=True)
+    out = s.summarise("total revenue by region", "SELECT region, SUM(revenue) FROM product_sales GROUP BY region", ex)
+    assert out.insights and out.chart and out.confidence is not None
+    assert out.chart.type in ("bar", "pie", "line")
