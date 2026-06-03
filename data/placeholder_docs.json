@@ -1,74 +1,188 @@
 [
   {
-    "id": "schema_product_sales",
-    "title": "Product Sales Dataset Table Description",
-    "type": "table_schema",
-    "content": "The product_sales dataset is sourced from data/raw/product_sales_dataset_final.csv and contains 200000 sales order rows. It represents product-level order transactions with customer, geography, category, product, quantity, unit price, revenue, and profit fields. Recommended SQL table name after import: product_sales."
+    "id": "schema_product_sales_overview",
+    "title": "Product Sales Dataset Table Overview",
+    "type": "schema_knowledge",
+    "content": "Primary Oracle table: ADMIN.PRODUCT_SALES_DATASET_FINAL. Business-friendly alias: product_sales. The table contains product-level sales order rows sourced from data/raw/product_sales_dataset_final.csv. It represents transactional sales with order, customer, geography, product classification, quantity, unit price, revenue, and profit fields. Use this table for sales, revenue, profit, margin, customer, geography, product, and time-analysis questions."
   },
   {
-    "id": "columns_order_customer",
+    "id": "schema_table_physical_names",
+    "title": "Physical Table And Column Naming",
+    "type": "schema_knowledge",
+    "content": "Use quoted Oracle identifiers when generating SQL against the imported dataset. Physical table name is \"ADMIN\".\"PRODUCT_SALES_DATASET_FINAL\". Common physical columns are \"ORDER_ID\", \"ORDER_DATE\", \"CUSTOMER_NAME\", \"CITY\", \"STATE\", \"REGION\", \"COUNTRY\", \"CATEGORY\", \"SUB_CATEGORY\", \"PRODUCT_NAME\", \"QUANTITY\", \"UNIT_PRICE\", \"REVENUE\", and \"PROFIT\". Prefer aliases such as product_name, total_revenue, total_profit, and profit_margin_percentage in query output."
+  },
+  {
+    "id": "schema_order_customer_columns",
     "title": "Order And Customer Columns",
-    "type": "column_definition",
-    "content": "Order_ID is the unique order row identifier. Order_Date is the order date in MM-DD-YY format in the raw CSV. Customer_Name is the customer who placed the order. These columns support order counting, customer-level analysis, and time-based sales questions."
+    "type": "schema_knowledge",
+    "content": "Order_ID is the unique order row identifier. Order_Date is the date the order was placed. Customer_Name is the customer who placed the order. Use COUNT(DISTINCT Order_ID) for order-count questions and COUNT(DISTINCT Customer_Name) for unique-customer questions. Use Customer_Name for customer-level ranking, segmentation, and high-value customer analysis."
   },
   {
-    "id": "columns_geography",
+    "id": "schema_geography_columns",
     "title": "Geography Columns",
-    "type": "column_definition",
-    "content": "City, State, Region, and Country describe the geographic location of each sale. Example Region values include South, Centre, East, and West. Use these columns for questions about sales by country, region, state, or city."
+    "type": "schema_knowledge",
+    "content": "City, State, Region, and Country describe the geographic location of each sale. Example Region values include South, Centre, East, and West. Use Region for broad geography grouping, State for state-level reporting, City for city-level reporting, and Country for country-level reporting. When the user asks for market, territory, area, geography, or location, retrieve these geography columns."
   },
   {
-    "id": "columns_product",
+    "id": "schema_product_columns",
     "title": "Product Classification Columns",
-    "type": "column_definition",
-    "content": "Category, Sub_Category, and Product_Name describe the sold product. Example categories include Accessories, Clothing & Apparel, and Electronics. Use Category for broad product grouping, Sub_Category for more detailed grouping, and Product_Name for individual product analysis."
+    "type": "schema_knowledge",
+    "content": "Category, Sub_Category, and Product_Name describe the sold product. Category is broad product grouping, Sub_Category is more detailed grouping, and Product_Name identifies individual products. Use Category for product-category questions, Sub_Category for product-family questions, and Product_Name for top product or specific product analysis."
   },
   {
-    "id": "columns_financial",
+    "id": "schema_financial_columns",
     "title": "Quantity And Financial Columns",
-    "type": "column_definition",
-    "content": "Quantity is the number of units sold. Unit_Price is the price per unit. Revenue is the sales amount for the order row. Profit is the profit amount for the order row. The raw CSV headers for Unit_Price, Revenue, and Profit contain extra spaces, so they should be cleaned during database import."
+    "type": "schema_knowledge",
+    "content": "Quantity is the number of units sold. Unit_Price is the price per unit. Revenue is the sales amount for the order row. Profit is the profit amount for the order row. Use SUM(Revenue) for total sales or revenue, SUM(Profit) for total profit, SUM(Quantity) for units sold, AVG(Unit_Price) for average unit price, and SUM(Profit) / NULLIF(SUM(Revenue), 0) for profit margin."
   },
   {
     "id": "kpi_revenue",
     "title": "Revenue KPI Definition",
     "type": "kpi_definition",
-    "content": "Revenue means the total sales amount. For this dataset, use SUM(Revenue) when answering revenue or sales questions. Revenue is already present as a column in the dataset, so future SQL should aggregate the Revenue column rather than recalculating it unless the user specifically asks for a calculation check."
+    "content": "Revenue means total sales amount. Synonyms include sales, turnover, gross sales, income, takings, and total revenue. For this dataset, use SUM(\"REVENUE\") when answering revenue or sales questions. Revenue is already present as a column, so aggregate it rather than recalculating from Quantity and Unit_Price unless the user specifically asks for a calculation audit."
   },
   {
     "id": "kpi_profit",
     "title": "Profit KPI Definition",
     "type": "kpi_definition",
-    "content": "Profit means the total profit amount. Use SUM(Profit) for total profit questions. Profit margin can be calculated as SUM(Profit) / NULLIF(SUM(Revenue), 0)."
+    "content": "Profit means total profit amount. Synonyms include earnings, net profit, gross profit in casual user phrasing, profitability amount, and margin dollars. Use SUM(\"PROFIT\") for total profit questions. Do not confuse profit with revenue; profit is separate from sales amount."
+  },
+  {
+    "id": "kpi_profit_margin",
+    "title": "Profit Margin KPI Definition",
+    "type": "kpi_definition",
+    "content": "Profit margin percentage measures profit as a share of revenue. Calculate as SUM(\"PROFIT\") / NULLIF(SUM(\"REVENUE\"), 0) * 100. Use ROUND(..., 2) when presenting percentages. If the user asks for margin, profitability rate, profit percentage, or margin percentage, use this KPI unless they explicitly mean total profit amount."
+  },
+  {
+    "id": "kpi_units_and_orders",
+    "title": "Units Sold And Order Count KPI Definitions",
+    "type": "kpi_definition",
+    "content": "Units sold means SUM(\"QUANTITY\"). Order count means COUNT(DISTINCT \"ORDER_ID\") unless the user asks for raw rows. Unique customers means COUNT(DISTINCT \"CUSTOMER_NAME\"). Average order revenue can be calculated as SUM(\"REVENUE\") / NULLIF(COUNT(DISTINCT \"ORDER_ID\"), 0). Average profit per order can be calculated similarly with SUM(\"PROFIT\")."
   },
   {
     "id": "rule_time_analysis",
     "title": "Time Analysis Business Rule",
     "type": "business_rule",
-    "content": "For time-based questions, use Order_Date. The raw date format is MM-DD-YY. If a user asks for last month, this month, quarter, or year, the future SQL generator should translate that into a clear date range. If the current date or fiscal calendar is ambiguous, ask a clarification question."
+    "content": "For time-based questions, use Order_Date. The raw CSV date format is MM-DD-YY, but the Oracle import may expose ORDER_DATE as a date-compatible value. For yearly questions, filter by calendar year. For monthly questions, group by month and year. If the user asks for last month, this month, quarter, or fiscal year and the current reference date or fiscal calendar is ambiguous, ask a clarification question instead of guessing."
   },
   {
-    "id": "rule_top_products",
-    "title": "Top Product Analysis Rule",
+    "id": "rule_top_bottom_ranking",
+    "title": "Top And Bottom Ranking Rule",
     "type": "business_rule",
-    "content": "For top product questions, group by Product_Name and usually sort by SUM(Revenue), SUM(Quantity), or SUM(Profit), depending on whether the user asks for sales, units, or profitability. Include Category and Sub_Category when the user asks for product context."
+    "content": "For top-N questions, group by the requested dimension and order the requested metric descending. For bottom-N or lowest questions, order ascending. If the user says top products by revenue, group by Product_Name and order by SUM(Revenue) descending. If the user says sort the previous answer, do not query the whole database; sort only the previously returned result rows in conversation memory."
   },
   {
-    "id": "rule_high_value_customer",
-    "title": "High-Value Customer Business Rule",
+    "id": "rule_geography_analysis",
+    "title": "Geography Analysis Business Rule",
     "type": "business_rule",
-    "content": "A high-value customer can be interpreted as a customer with high total revenue or high total profit. If the user does not specify the metric or threshold, ask a clarification question. If they provide a threshold such as above 5000, group by Customer_Name and filter using HAVING SUM(Revenue) above that threshold."
+    "content": "For regional performance, group by Region. For country, state, or city questions, group by the matching geography column. If the user says location, geography, market, or territory without a specific level, prefer Region for high-level summaries and ask a clarification question if precise geography level is important."
   },
   {
-    "id": "example_revenue_by_category",
-    "title": "Example Question And SQL Pattern: Revenue By Category",
-    "type": "example_sql",
-    "content": "Question: What were total sales by product category? SQL pattern: SELECT Category, SUM(Revenue) AS total_revenue FROM product_sales GROUP BY Category ORDER BY total_revenue DESC. Add a WHERE clause on Order_Date when the user specifies a time period."
+    "id": "rule_product_analysis",
+    "title": "Product Analysis Business Rule",
+    "type": "business_rule",
+    "content": "For top product questions, group by Product_Name and sort by SUM(Revenue), SUM(Quantity), or SUM(Profit), depending on whether the user asks for sales, units, or profitability. Include Category and Sub_Category when the user asks for product context. For product category questions, group by Category. For subcategory questions, group by Sub_Category."
   },
   {
-    "id": "example_profit_by_region",
-    "title": "Example Question And SQL Pattern: Profit By Region",
-    "type": "example_sql",
-    "content": "Question: Which regions generated the most profit? SQL pattern: SELECT Region, SUM(Profit) AS total_profit FROM product_sales GROUP BY Region ORDER BY total_profit DESC."
+    "id": "rule_customer_analysis",
+    "title": "Customer Analysis Business Rule",
+    "type": "business_rule",
+    "content": "For customer-level questions, group by Customer_Name. A high-value customer can mean high total revenue or high total profit. If the user does not specify the metric or threshold, ask a clarification question. If they provide a threshold such as above 5000, group by Customer_Name and filter using HAVING SUM(Revenue) > threshold or HAVING SUM(Profit) > threshold depending on the chosen metric."
+  },
+  {
+    "id": "rule_safe_read_only",
+    "title": "Read-Only SQL Safety Rule",
+    "type": "business_rule",
+    "content": "The agent must generate read-only SELECT SQL only. Never generate DELETE, UPDATE, INSERT, MERGE, DROP, ALTER, TRUNCATE, CREATE, GRANT, or REVOKE statements. If a user asks to modify, delete, insert, or change data, refuse and explain that only read-only analytical questions are supported."
+  },
+  {
+    "id": "sql_pattern_revenue_by_category",
+    "title": "SQL Pattern Revenue By Category",
+    "type": "sql_pattern",
+    "content": "Question pattern: total sales, revenue, or turnover by product category. SQL pattern: SELECT \"CATEGORY\" AS product_category, SUM(\"REVENUE\") AS total_revenue FROM \"ADMIN\".\"PRODUCT_SALES_DATASET_FINAL\" GROUP BY \"CATEGORY\" ORDER BY total_revenue DESC FETCH FIRST 100 ROWS ONLY. Add date filters when the user specifies a time period."
+  },
+  {
+    "id": "sql_pattern_profit_by_region",
+    "title": "SQL Pattern Profit By Region",
+    "type": "sql_pattern",
+    "content": "Question pattern: which regions generated the most profit. SQL pattern: SELECT \"REGION\" AS region, SUM(\"PROFIT\") AS total_profit FROM \"ADMIN\".\"PRODUCT_SALES_DATASET_FINAL\" GROUP BY \"REGION\" ORDER BY total_profit DESC FETCH FIRST 100 ROWS ONLY."
+  },
+  {
+    "id": "sql_pattern_profit_margin_by_region",
+    "title": "SQL Pattern Profit Margin By Region",
+    "type": "sql_pattern",
+    "content": "Question pattern: profit margin percentage by region. SQL pattern: SELECT \"REGION\" AS region, ROUND(SUM(\"PROFIT\") / NULLIF(SUM(\"REVENUE\"), 0) * 100, 2) AS profit_margin_percentage FROM \"ADMIN\".\"PRODUCT_SALES_DATASET_FINAL\" GROUP BY \"REGION\" ORDER BY profit_margin_percentage DESC FETCH FIRST 100 ROWS ONLY."
+  },
+  {
+    "id": "sql_pattern_top_products_by_revenue",
+    "title": "SQL Pattern Top Products By Revenue",
+    "type": "sql_pattern",
+    "content": "Question pattern: top products by sales or revenue. SQL pattern: SELECT \"PRODUCT_NAME\" AS product_name, SUM(\"REVENUE\") AS total_revenue FROM \"ADMIN\".\"PRODUCT_SALES_DATASET_FINAL\" GROUP BY \"PRODUCT_NAME\" ORDER BY total_revenue DESC FETCH FIRST 5 ROWS ONLY. Use the user's requested N when provided."
+  },
+  {
+    "id": "sql_pattern_monthly_revenue",
+    "title": "SQL Pattern Monthly Revenue",
+    "type": "sql_pattern",
+    "content": "Question pattern: monthly revenue or sales over a year. SQL pattern: SELECT EXTRACT(MONTH FROM \"ORDER_DATE\") AS month, SUM(\"REVENUE\") AS monthly_revenue FROM \"ADMIN\".\"PRODUCT_SALES_DATASET_FINAL\" WHERE EXTRACT(YEAR FROM \"ORDER_DATE\") = requested_year GROUP BY EXTRACT(MONTH FROM \"ORDER_DATE\") ORDER BY month. If ORDER_DATE is stored as text, convert it with TO_DATE using the known MM-DD-RR pattern."
+  },
+  {
+    "id": "dataset_documentation_source",
+    "title": "Dataset Source Documentation",
+    "type": "dataset_documentation",
+    "content": "The sales dataset comes from data/raw/product_sales_dataset_final.csv. It contains 200000 rows of product-level orders. It is intended for hackathon analytics demos around sales, revenue, profit, product performance, geographic performance, customers, and time trends. It is not a live operational system and should not be used for real financial reporting."
+  },
+  {
+    "id": "dataset_documentation_known_values",
+    "title": "Known Dataset Values",
+    "type": "dataset_documentation",
+    "content": "Known broad Category values include Accessories, Clothing & Apparel, Electronics, and Home & Furniture. Known Region values include South, Centre, East, and West. Product_Name contains individual product names such as Tempur-Pedic Mattress, Instant Pot, MacBook Air, Apple Watch, and Apple iPhone 14. Use these values as retrieval hints, but rely on SQL results for exact rankings."
+  },
+  {
+    "id": "previous_analysis_top_products_revenue",
+    "title": "Previous Analysis Top Products By Revenue",
+    "type": "previous_analysis",
+    "content": "A previous analysis of top products by total revenue found leading products including Tempur-Pedic Mattress, Instant Pot, MacBook Air, Apple Watch, and Apple iPhone 14. This analysis is useful as a sanity check for demo questions, but generated SQL should still query the database for current results."
+  },
+  {
+    "id": "previous_analysis_category_revenue",
+    "title": "Previous Analysis Category Revenue Ranking",
+    "type": "previous_analysis",
+    "content": "A previous category revenue analysis found Electronics as the highest revenue category, followed by Home & Furniture, Clothing & Apparel, and Accessories. Use this as a sanity check for revenue-by-category questions, not as a replacement for SQL execution."
+  },
+  {
+    "id": "previous_analysis_region_margin",
+    "title": "Previous Analysis Regional Margin",
+    "type": "previous_analysis",
+    "content": "A previous profit margin by region analysis found South with the highest margin percentage, followed by West, Centre, and East. Use this as a sanity check for margin questions, not as a replacement for SQL execution."
+  },
+  {
+    "id": "glossary_revenue_sales",
+    "title": "Business Glossary Revenue And Sales",
+    "type": "business_glossary",
+    "content": "Canonical term: revenue. Synonyms: sales, total sales, turnover, gross sales, income, takings, total revenue. Maps to column Revenue. In SQL, use SUM(\"REVENUE\") for aggregated revenue."
+  },
+  {
+    "id": "glossary_profit_margin",
+    "title": "Business Glossary Profit And Margin",
+    "type": "business_glossary",
+    "content": "Canonical terms: profit and profit margin. Profit synonyms include earnings, net profit, profitability amount, and margin dollars; map to Profit and use SUM(\"PROFIT\"). Profit margin synonyms include margin, margin percentage, profitability rate, and profit percentage; calculate as SUM(\"PROFIT\") / NULLIF(SUM(\"REVENUE\"), 0) * 100."
+  },
+  {
+    "id": "glossary_product_terms",
+    "title": "Business Glossary Product Terms",
+    "type": "business_glossary",
+    "content": "Canonical product dimensions: Category, Sub_Category, Product_Name. Synonyms for Category include product category, department, segment, and broad product group. Synonyms for Sub_Category include subcategory, product family, and sub group. Synonyms for Product_Name include product, item, SKU name, and sold item."
+  },
+  {
+    "id": "glossary_geography_terms",
+    "title": "Business Glossary Geography Terms",
+    "type": "business_glossary",
+    "content": "Canonical geography dimensions: Region, Country, State, City. Synonyms include geography, location, area, territory, market, place, and zone. Prefer Region for broad summaries unless the user specifically asks for country, state, or city."
+  },
+  {
+    "id": "glossary_time_terms",
+    "title": "Business Glossary Time Terms",
+    "type": "business_glossary",
+    "content": "Canonical time column: Order_Date. Synonyms include date, order date, sales date, transaction date, month, year, quarter, period, and time. Use Order_Date for all time-based filtering and grouping."
   }
 ]

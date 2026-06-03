@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 
+import altair as alt
 import httpx
 import pandas as pd
 import streamlit as st
@@ -31,8 +34,15 @@ COPY = {
     "confidence_ok": "High confidence",
     "confidence_warn": "Low confidence; double-check before acting on this.",
     "approx_match": "No exact match found. Showing the closest results instead.",
+    "summary_button": "Show summary",
+    "summary_hide_button": "Hide summary",
+    "summary_label": "Summary",
     "expander_label": "How did the AI calculate this?",
     "insights_label": "Key insights",
+    "chart_label": "Chart type",
+    "chart_bar": "Bar",
+    "chart_line": "Line",
+    "chart_pie": "Pie",
     "tables_used_label": "Tables used",
     "explanation_label": "Plain-English breakdown",
     "sql_label": "Generated SQL",
@@ -92,26 +102,128 @@ def api_is_healthy() -> bool:
         return False
 
 
-def _render_chart_from_spec(spec: dict | None, df: pd.DataFrame) -> None:
-    """Render the backend's recommended chart, or fall back to simple detection."""
+def _response_key(response: dict, suffix: str, render_key: str = "") -> str:
+    payload = {
+        "answer": response.get("answer", ""),
+        "sql": response.get("sql", ""),
+        "rows": response.get("rows", []),
+        "render_key": render_key,
+    }
+    raw = json.dumps(payload, sort_keys=True, default=str)
+    digest = hashlib.md5(raw.encode("utf-8")).hexdigest()[:12]
+    return f"{suffix}_{digest}"
+
+
+def _chart_axes(df: pd.DataFrame, spec: dict | None = None) -> tuple[str | None, str | None]:
+    numeric_cols = df.select_dtypes(include="number").columns.tolist()
+    categorical_cols = [column for column in df.columns if column not in numeric_cols]
+    date_like_cols = [
+        column
+        for column in df.columns
+        if any(
+            token in column.lower()
+            for token in ("date", "month", "year", "quarter", "week", "day")
+        )
+    ]
+
+    if spec:
+        x_axis = spec.get("x")
+        y_axis = spec.get("y")
+        if x_axis in df.columns and y_axis in numeric_cols:
+            return x_axis, y_axis
+
+    if date_like_cols and numeric_cols:
+        x_axis = date_like_cols[0]
+        value_cols = [column for column in numeric_cols if column != x_axis]
+        if value_cols:
+            return x_axis, value_cols[0]
+
+    if categorical_cols and numeric_cols:
+        return categorical_cols[0], numeric_cols[0]
+
+    if len(df.columns) >= 2 and numeric_cols:
+        x_axis = next(
+            (column for column in df.columns if column not in numeric_cols),
+            df.columns[0],
+        )
+        value_cols = [column for column in numeric_cols if column != x_axis]
+        if value_cols:
+            return x_axis, value_cols[0]
+
+    return None, numeric_cols[0] if numeric_cols else None
+
+
+def _default_chart_type(spec: dict | None) -> str:
+    if spec and spec.get("type") == "line":
+        return COPY["chart_line"]
+    return COPY["chart_bar"]
+
+
+def _render_selected_chart(chart_type: str, df: pd.DataFrame, spec: dict | None = None) -> None:
     if df.empty:
         return
 
-    if spec and spec.get("type") and spec["type"] != "none":
-        x_axis = spec.get("x")
-        y_axis = spec.get("y")
-        chart_type = spec["type"]
-        try:
-            if x_axis in df.columns and y_axis in df.columns:
-                if chart_type == "line":
-                    st.line_chart(df.set_index(x_axis)[y_axis])
-                    return
-                st.bar_chart(df.set_index(x_axis)[y_axis])
-                return
-        except Exception:
-            pass
+    x_axis, y_axis = _chart_axes(df, spec)
+    if not x_axis or not y_axis or x_axis not in df.columns or y_axis not in df.columns:
+        st.warning("No chartable category and value columns were found.")
+        return
 
-    _detect_and_render_chart(df)
+    chart_df = df[[x_axis, y_axis]].dropna()
+    if chart_df.empty:
+        return
+
+    x_type = "ordinal" if chart_df[x_axis].dtype.kind in "iu" else "nominal"
+    if chart_type == COPY["chart_line"]:
+        chart = (
+            alt.Chart(chart_df)
+            .mark_line(point=True)
+            .encode(
+                x=alt.X(field=x_axis, type=x_type),
+                y=alt.Y(field=y_axis, type="quantitative"),
+                tooltip=[x_axis, y_axis],
+            )
+        )
+        st.altair_chart(chart, use_container_width=True)
+        return
+    if chart_type == COPY["chart_pie"]:
+        chart = (
+            alt.Chart(chart_df)
+            .mark_arc()
+            .encode(
+                theta=alt.Theta(field=y_axis, type="quantitative"),
+                color=alt.Color(field=x_axis, type="nominal"),
+                tooltip=[x_axis, y_axis],
+            )
+        )
+        st.altair_chart(chart, use_container_width=True)
+        return
+    chart = (
+        alt.Chart(chart_df)
+        .mark_bar()
+        .encode(
+            x=alt.X(field=x_axis, type=x_type),
+            y=alt.Y(field=y_axis, type="quantitative"),
+            tooltip=[x_axis, y_axis],
+        )
+    )
+    st.altair_chart(chart, use_container_width=True)
+
+
+def _render_chart_options(spec: dict | None, df: pd.DataFrame, key: str) -> None:
+    """Render user-selected chart types using the backend suggestion as the default."""
+    if df.empty:
+        return
+
+    options = [COPY["chart_bar"], COPY["chart_line"], COPY["chart_pie"]]
+    default_option = _default_chart_type(spec)
+    chart_type = st.radio(
+        COPY["chart_label"],
+        options,
+        index=options.index(default_option),
+        horizontal=True,
+        key=key,
+    )
+    _render_selected_chart(chart_type, df, spec)
 
 
 def _detect_and_render_chart(df: pd.DataFrame) -> None:
@@ -136,11 +248,17 @@ def _detect_and_render_chart(df: pd.DataFrame) -> None:
         return
 
     if date_cols and numeric_cols:
-        st.line_chart(df.set_index(date_cols[0])[numeric_cols])
+        date_col = date_cols[0]
+        value_cols = [column for column in numeric_cols if column != date_col]
+        if value_cols:
+            st.line_chart(df.set_index(date_col)[value_cols])
         return
 
     if categorical_cols and numeric_cols:
-        st.bar_chart(df.set_index(categorical_cols[0])[numeric_cols])
+        category_col = categorical_cols[0]
+        value_cols = [column for column in numeric_cols if column != category_col]
+        if value_cols:
+            st.bar_chart(df.set_index(category_col)[value_cols])
 
 
 def _render_sidebar() -> None:
@@ -203,7 +321,7 @@ def _render_sidebar() -> None:
             st.rerun()
 
 
-def _render_response(response: dict) -> None:
+def _render_response(response: dict, render_key: str = "") -> None:
     if response.get("error"):
         st.error(response["error"])
         return
@@ -220,19 +338,34 @@ def _render_response(response: dict) -> None:
     if response.get("clarification"):
         st.info(response["clarification"])
 
-    if response.get("answer"):
-        st.markdown(f"### {response['answer']}")
-
     insights = response.get("insights") or []
-    if insights:
-        st.markdown(f"**{COPY['insights_label']}**")
-        for insight in insights:
-            st.markdown(f"- {insight}")
+    has_summary = bool(response.get("answer") or insights)
+    if has_summary:
+        summary_key = _response_key(response, "summary", render_key)
+        visible_key = f"{summary_key}_visible"
+        if visible_key not in st.session_state:
+            st.session_state[visible_key] = False
+        button_label = (
+            COPY["summary_hide_button"]
+            if st.session_state[visible_key]
+            else COPY["summary_button"]
+        )
+        if st.button(button_label, key=f"{summary_key}_button"):
+            st.session_state[visible_key] = not st.session_state[visible_key]
+        if st.session_state[visible_key]:
+            st.markdown(f"**{COPY['summary_label']}**")
+            if response.get("answer"):
+                st.markdown(f"### {response['answer']}")
+            if insights:
+                st.markdown(f"**{COPY['insights_label']}**")
+                for insight in insights:
+                    st.markdown(f"- {insight}")
 
     rows = response.get("rows", [])
     if rows:
         dataframe = pd.DataFrame(rows)
-        _render_chart_from_spec(response.get("chart"), dataframe)
+        chart_key = _response_key(response, "chart", render_key)
+        _render_chart_options(response.get("chart"), dataframe, chart_key)
         st.dataframe(dataframe, use_container_width=True)
 
     with st.expander(COPY["expander_label"]):
@@ -283,7 +416,7 @@ def _ask_question(question: str) -> None:
         if response.get("session_id"):
             st.session_state.session_id = response["session_id"]
         st.session_state.history.append({"question": question, "response": response})
-        _render_response(response)
+        _render_response(response, f"live_{len(st.session_state.history) - 1}")
 
 
 def main() -> None:
@@ -302,12 +435,13 @@ def main() -> None:
         example_question = st.session_state._example_question
         del st.session_state._example_question
         _ask_question(example_question)
+        st.stop()
 
-    for entry in st.session_state.history:
+    for index, entry in enumerate(st.session_state.history):
         with st.chat_message("user"):
             st.markdown(entry["question"])
         with st.chat_message("assistant"):
-            _render_response(entry["response"])
+            _render_response(entry["response"], f"history_{index}")
 
     question = st.chat_input(COPY["chat_placeholder"])
     if question:

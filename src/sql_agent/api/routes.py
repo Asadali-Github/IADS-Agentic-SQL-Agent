@@ -72,6 +72,10 @@ def _friendly_error(
 ) -> str | None:
     if generated_sql.get("provider") == "local_no_answer" and answer_payload.get("answer"):
         return None
+    if generated_sql.get("provider") == "action_decider" and generated_sql.get(
+        "clarification_question"
+    ):
+        return None
     if answer_payload.get("error") and not answer_payload.get("answer"):
         return str(answer_payload["error"])
     if generated_sql.get("error"):

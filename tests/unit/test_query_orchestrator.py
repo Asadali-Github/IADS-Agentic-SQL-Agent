@@ -87,7 +87,11 @@ class FakeExecutor:
 
 
 class FakeProductExecutor:
+    def __init__(self) -> None:
+        self.execution_count = 0
+
     def execute(self, sql_validation: dict[str, Any]) -> dict[str, Any]:
+        self.execution_count += 1
         return {
             "status": "success",
             "reason": "fake execution",
@@ -188,10 +192,11 @@ def test_orchestrator_answers_lowest_of_previous_rows_from_memory() -> None:
 def test_orchestrator_sorts_previous_rows_without_requerying_database() -> None:
     retriever = FakeRetriever([REVENUE_DOC])
     generator = FakeProductGenerator()
+    executor = FakeProductExecutor()
     orchestrator = QueryOrchestrator(
         retriever=retriever,
         sql_generator=generator,
-        sql_executor=FakeProductExecutor(),
+        sql_executor=executor,
         summariser=FakeSummariser(),
     )
 
@@ -199,6 +204,7 @@ def test_orchestrator_sorts_previous_rows_without_requerying_database() -> None:
     sorted_response = orchestrator.process_question("sort them ascendingly")
 
     assert first_response["pipeline_stage"] == "sql_executed_successfully"
+    assert sorted_response["action_decision"]["action"] == "TRANSFORM_PREVIOUS_RESULT"
     assert sorted_response["pipeline_stage"] == "answered_from_conversation_memory"
     assert sorted_response["retrieval_provider"] == "conversation_memory"
     assert sorted_response["query_results"]["rows"] == [
@@ -211,6 +217,7 @@ def test_orchestrator_sorts_previous_rows_without_requerying_database() -> None:
     assert "sorted ascending by total revenue" in sorted_response["answer"]["answer"]
     assert len(generator.prompts) == 1
     assert len(retriever.questions) == 1
+    assert executor.execution_count == 1
 
 
 def test_standalone_again_question_does_not_keep_previous_sort_context() -> None:
@@ -256,6 +263,129 @@ def test_profit_margin_follow_up_rewrites_to_total_metric_by_same_grouping() -> 
     assert response["resolved_question"] == "What is total revenue by region?"
     assert "What is total revenue by region?" in generator.prompts[-1]
     assert "revenue margin" not in response["resolved_question"].lower()
+
+
+def test_orchestrator_runs_new_sql_for_new_customer_question() -> None:
+    retriever = FakeRetriever([REVENUE_DOC])
+    generator = FakeProductGenerator()
+    executor = FakeProductExecutor()
+    orchestrator = QueryOrchestrator(
+        retriever=retriever,
+        sql_generator=generator,
+        sql_executor=executor,
+        summariser=FakeSummariser(),
+    )
+
+    response = orchestrator.process_question("Show top customers by revenue")
+
+    assert response["action_decision"]["action"] == "RUN_NEW_SQL"
+    assert response["pipeline_stage"] == "sql_executed_successfully"
+    assert len(generator.prompts) == 1
+    assert executor.execution_count == 1
+
+
+def test_orchestrator_modifies_previous_sql_for_year_constraint() -> None:
+    retriever = FakeRetriever([REVENUE_DOC])
+    generator = FakeProductGenerator()
+    executor = FakeProductExecutor()
+    orchestrator = QueryOrchestrator(
+        retriever=retriever,
+        sql_generator=generator,
+        sql_executor=executor,
+        summariser=FakeSummariser(),
+    )
+
+    orchestrator.process_question("List the top five products by revenue")
+    response = orchestrator.process_question("For 2024 only")
+
+    assert response["action_decision"]["action"] == "MODIFY_PREVIOUS_SQL"
+    assert response["pipeline_stage"] == "sql_executed_successfully"
+    assert "Previous SQL:" in generator.prompts[-1]
+    assert executor.execution_count == 2
+
+
+def test_orchestrator_refresh_executes_sql_instead_of_reusing_cached_rows() -> None:
+    retriever = FakeRetriever([REVENUE_DOC])
+    generator = FakeProductGenerator()
+    executor = FakeProductExecutor()
+    orchestrator = QueryOrchestrator(
+        retriever=retriever,
+        sql_generator=generator,
+        sql_executor=executor,
+        summariser=FakeSummariser(),
+    )
+
+    orchestrator.process_question("List the top five products by revenue")
+    response = orchestrator.process_question("Refresh the result")
+
+    assert response["action_decision"]["action"] == "MODIFY_PREVIOUS_SQL"
+    assert response["pipeline_stage"] == "sql_executed_successfully"
+    assert len(generator.prompts) == 2
+    assert executor.execution_count == 2
+
+
+def test_orchestrator_explains_previous_result_without_database_call() -> None:
+    retriever = FakeRetriever([REVENUE_DOC])
+    generator = FakeProductGenerator()
+    executor = FakeProductExecutor()
+    orchestrator = QueryOrchestrator(
+        retriever=retriever,
+        sql_generator=generator,
+        sql_executor=executor,
+        summariser=FakeSummariser(),
+    )
+
+    orchestrator.process_question("List the top five products by revenue")
+    response = orchestrator.process_question("Explain this")
+
+    assert response["action_decision"]["action"] == "TRANSFORM_PREVIOUS_RESULT"
+    assert response["pipeline_stage"] == "answered_from_conversation_memory"
+    assert "previous result contains" in response["answer"]["answer"].lower()
+    assert len(generator.prompts) == 1
+    assert executor.execution_count == 1
+
+
+def test_orchestrator_does_not_answer_bare_modify_after_clarification() -> None:
+    retriever = FakeRetriever([REVENUE_DOC])
+    generator = FakeProductGenerator()
+    executor = FakeProductExecutor()
+    orchestrator = QueryOrchestrator(
+        retriever=retriever,
+        sql_generator=generator,
+        sql_executor=executor,
+        summariser=FakeSummariser(),
+    )
+
+    first_response = orchestrator.process_question("sort ascendingly")
+    second_response = orchestrator.process_question("modify the previous sql")
+
+    assert first_response["action_decision"]["action"] == "ASK_CLARIFICATION"
+    assert second_response["action_decision"]["action"] == "ASK_CLARIFICATION"
+    assert second_response["pipeline_stage"] == "action_decision_asked_clarification"
+    assert len(generator.prompts) == 0
+    assert executor.execution_count == 0
+
+
+def test_orchestrator_does_not_answer_bare_use_previous_result_after_clarification() -> None:
+    retriever = FakeRetriever([REVENUE_DOC])
+    generator = FakeProductGenerator()
+    executor = FakeProductExecutor()
+    orchestrator = QueryOrchestrator(
+        retriever=retriever,
+        sql_generator=generator,
+        sql_executor=executor,
+        summariser=FakeSummariser(),
+    )
+
+    first_response = orchestrator.process_question("sort ascendingly")
+    second_response = orchestrator.process_question("use previous result")
+
+    assert first_response["action_decision"]["action"] == "ASK_CLARIFICATION"
+    assert second_response["action_decision"]["action"] == "ASK_CLARIFICATION"
+    assert second_response["pipeline_stage"] == "action_decision_asked_clarification"
+    assert "No previous result" in second_response["answer"]["answer"]
+    assert len(generator.prompts) == 0
+    assert executor.execution_count == 0
 
 
 def test_orchestrator_blocks_unsafe_mutation_intent_before_retrieval() -> None:

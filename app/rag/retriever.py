@@ -53,6 +53,7 @@ class OracleRAGRetriever:
         with self.connection_factory() as connection:
             self._ensure_table(connection)
             self._upsert_documents(connection, embeddings)
+            self._delete_stale_documents(connection)
             connection.commit()
 
     def retrieve(self, user_question: str) -> list[dict]:
@@ -210,6 +211,24 @@ class OracleRAGRetriever:
                         "embedding_model": self._embedding_client().model_id,
                     },
                 )
+
+    def _delete_stale_documents(self, connection: Any) -> None:
+        document_ids = [document["id"] for document in self.documents]
+        if not document_ids:
+            return
+
+        placeholders = ", ".join(f":id_{index}" for index in range(len(document_ids)))
+        parameters = {
+            f"id_{index}": document_id for index, document_id in enumerate(document_ids)
+        }
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                DELETE FROM {self.table_name}
+                WHERE id NOT IN ({placeholders})
+                """,
+                parameters,
+            )
 
     def _build_vector_search_sql(self) -> str:
         return f"""
