@@ -47,6 +47,26 @@ class FakeGenerator:
         }
 
 
+class FakeProductGenerator:
+    def __init__(self) -> None:
+        self.prompts: list[str] = []
+
+    def generate(self, prompt: str) -> dict[str, Any]:
+        self.prompts.append(prompt)
+        return {
+            "sql": (
+                'SELECT "PRODUCT_NAME", SUM("REVENUE") AS total_revenue '
+                'FROM "ADMIN"."PRODUCT_SALES_DATASET_FINAL" '
+                'GROUP BY "PRODUCT_NAME" '
+                'ORDER BY total_revenue DESC FETCH FIRST 5 ROWS ONLY'
+            ),
+            "clarification_question": None,
+            "reasoning": "fake product SQL",
+            "provider": "fake",
+            "error": None,
+        }
+
+
 class FailingGenerator:
     def generate(self, prompt: str) -> dict[str, Any]:
         raise AssertionError("Generator should not be called for unsupported questions.")
@@ -61,6 +81,26 @@ class FakeExecutor:
             "columns": ["CATEGORY", "TOTAL_SALES"],
             "rows": [{"CATEGORY": "Electronics", "TOTAL_SALES": 10}],
             "row_count": 1,
+            "row_limit": 100,
+            "error": None,
+        }
+
+
+class FakeProductExecutor:
+    def execute(self, sql_validation: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "status": "success",
+            "reason": "fake execution",
+            "sql": sql_validation.get("safe_sql"),
+            "columns": ["PRODUCT_NAME", "TOTAL_REVENUE"],
+            "rows": [
+                {"PRODUCT_NAME": "Tempur-Pedic Mattress", "TOTAL_REVENUE": 9061755.86},
+                {"PRODUCT_NAME": "Instant Pot", "TOTAL_REVENUE": 8903475.26},
+                {"PRODUCT_NAME": "MacBook Air", "TOTAL_REVENUE": 7362516.81},
+                {"PRODUCT_NAME": "Apple Watch", "TOTAL_REVENUE": 6834472.35},
+                {"PRODUCT_NAME": "Apple iPhone 14", "TOTAL_REVENUE": 5740819.18},
+            ],
+            "row_count": 5,
             "row_limit": 100,
             "error": None,
         }

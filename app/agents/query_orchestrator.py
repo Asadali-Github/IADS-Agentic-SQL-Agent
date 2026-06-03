@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
-from app.agents.memory import ConversationMemory
+from app.agents.memory import ConversationMemory, MemoryAnswer, QuestionResolution
 from app.agents.summariser import SelectAIResultSummariser
-from app.agents.support_guard import assess_question_support, unsupported_answer
+from app.agents.support_guard import (
+    assess_question_intent_safety,
+    assess_question_support,
+    unsupported_answer,
+)
 from app.rag.retriever import OracleRAGRetriever
 from app.sql.executor import SafeSQLExecutor
 from app.sql.generator import OracleSelectAISQLGenerator
@@ -68,6 +72,7 @@ class QueryOrchestrator:
         sql_generation_prompt = self.prompt_builder.build_prompt(
             user_question=resolved_question,
             retrieved_documents=retrieved_documents,
+            conversation_context=resolution.conversation_context,
         )
         generated_sql = self.sql_generator.generate(sql_generation_prompt)
         sql_validation = validate_sql(generated_sql["sql"])
@@ -78,6 +83,8 @@ class QueryOrchestrator:
             "original_question": user_question,
             "resolved_question": resolved_question,
             "retrieved_documents": retrieved_documents,
+            "retrieval_provider": getattr(self.retriever, "last_retrieval_provider", None),
+            "retrieval_error": getattr(self.retriever, "last_retrieval_error", None),
             "support_assessment": support_assessment,
             "sql_generation_prompt": sql_generation_prompt,
             "generated_sql": generated_sql,
@@ -95,6 +102,7 @@ class QueryOrchestrator:
         resolved_question: str,
         retrieved_documents: list[dict],
         support_assessment: dict,
+        retrieval_provider: str | None = None,
     ) -> dict:
         sql_validation = validate_sql(None)
         query_results = self.sql_executor.execute(sql_validation)
@@ -102,6 +110,9 @@ class QueryOrchestrator:
             "original_question": user_question,
             "resolved_question": resolved_question,
             "retrieved_documents": retrieved_documents,
+            "retrieval_provider": retrieval_provider
+            or getattr(self.retriever, "last_retrieval_provider", None),
+            "retrieval_error": getattr(self.retriever, "last_retrieval_error", None),
             "support_assessment": support_assessment,
             "sql_generation_prompt": None,
             "generated_sql": {
@@ -117,6 +128,57 @@ class QueryOrchestrator:
             "query_results": query_results,
             "answer": unsupported_answer(support_assessment["reason"]),
             "pipeline_stage": "unsupported_question_no_sql_generated",
+        }
+
+    def _memory_answer_response(
+        self,
+        user_question: str,
+        resolution: QuestionResolution,
+        memory_answer: MemoryAnswer,
+    ) -> dict:
+        source_sql = memory_answer.source_turn.generated_sql.get("sql")
+        sql_validation = validate_sql(source_sql)
+        query_results = {
+            "status": "success",
+            "reason": "Answered from previous result rows; no new SQL execution was needed.",
+            "sql": source_sql,
+            "columns": memory_answer.columns,
+            "rows": memory_answer.rows,
+            "row_count": len(memory_answer.rows),
+            "row_limit": len(memory_answer.source_turn.query_results.get("rows") or []),
+            "error": None,
+        }
+        return {
+            "original_question": user_question,
+            "resolved_question": resolution.resolved_question,
+            "retrieved_documents": memory_answer.source_turn.retrieved_documents,
+            "retrieval_provider": "conversation_memory",
+            "retrieval_error": None,
+            "support_assessment": {
+                "is_supported": True,
+                "reason": "Answered from previous result rows in conversation memory.",
+                "matched_terms": [],
+            },
+            "sql_generation_prompt": None,
+            "generated_sql": {
+                "sql": source_sql,
+                "clarification_question": None,
+                "reasoning": (
+                    "No new SQL was generated because the question referred to the "
+                    "previous result table."
+                ),
+                "provider": "conversation_memory",
+                "error": None,
+            },
+            "sql_validation": sql_validation,
+            "query_results": query_results,
+            "answer": {
+                "answer": memory_answer.answer,
+                "provider": "conversation_memory",
+                "prompt_row_count": len(memory_answer.rows),
+                "error": None,
+            },
+            "pipeline_stage": "answered_from_conversation_memory",
         }
 
     def _pipeline_stage(

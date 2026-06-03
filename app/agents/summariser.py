@@ -186,12 +186,32 @@ class SelectAIResultSummariser:
             "JSON:"
         )
 
-    def _local_summary(self, rows: list[dict[str, Any]]) -> str:
+    def _local_summary(self, user_question: str, rows: list[dict[str, Any]]) -> str:
         first_row = rows[0]
-        formatted_values = ", ".join(f"{key}: {value}" for key, value in first_row.items())
+        formatted_values = ", ".join(
+            f"{self._humanize_label(key)}: {self._format_value(value)}"
+            for key, value in first_row.items()
+        )
         if len(rows) == 1:
             return f"The query returned one row: {formatted_values}."
-        return f"The query returned {len(rows)} rows. The top row is {formatted_values}."
+
+        question_intro = "For this question"
+        if user_question:
+            question_intro = f"For '{user_question}'"
+        return (
+            f"{question_intro}, the result returned {len(rows)} rows. "
+            f"The leading row is {formatted_values}."
+        )
+
+    def _humanize_label(self, label: str) -> str:
+        return label.replace("_", " ").strip().lower()
+
+    def _format_value(self, value: Any) -> str:
+        if isinstance(value, float):
+            return f"{value:,.2f}"
+        if isinstance(value, int) and not isinstance(value, bool):
+            return f"{value:,}"
+        return str(value)
 
     def _result(
         self,

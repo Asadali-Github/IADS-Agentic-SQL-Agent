@@ -11,10 +11,89 @@ result.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
 from app.agents.followups import looks_like_follow_up, resolve as resolve_follow_up
+
+BUSINESS_FOLLOW_UP_TERMS = {
+    "category",
+    "city",
+    "country",
+    "customer",
+    "customers",
+    "margin",
+    "month",
+    "monthly",
+    "orders",
+    "product",
+    "products",
+    "profit",
+    "quantity",
+    "region",
+    "revenue",
+    "sales",
+    "state",
+    "year",
+}
+
+RESULT_REFERENCE_WORDS = {
+    "above",
+    "answer",
+    "list",
+    "previous",
+    "result",
+    "results",
+    "row",
+    "rows",
+    "table",
+    "them",
+    "these",
+    "those",
+}
+
+LOWEST_MARKERS = {"bottom", "least", "lowest", "min", "minimum", "smallest", "worst"}
+HIGHEST_MARKERS = {"best", "highest", "largest", "max", "maximum", "most", "top"}
+FIRST_MARKERS = {"first", "1st"}
+LAST_MARKERS = {"last", "final"}
+SORT_MARKERS = {"order", "ordered", "reorder", "sort", "sorted"}
+ASCENDING_MARKERS = {"asc", "ascending", "ascendingly", "increasing"}
+DESCENDING_MARKERS = {"desc", "descending", "descendingly", "decreasing"}
+
+METRIC_ALIASES = {
+    "profit": ("sales", "revenue", "quantity", "orders"),
+    "revenue": ("profit", "sales", "quantity", "orders"),
+    "sales": ("profit", "revenue", "quantity", "orders"),
+    "quantity": ("profit", "revenue", "sales", "orders"),
+    "orders": ("profit", "revenue", "sales", "quantity"),
+}
+
+
+@dataclass(frozen=True)
+class QuestionResolution:
+    """How the current user question should be used by the pipeline."""
+
+    original_question: str
+    resolved_question: str
+    retrieval_question: str
+    is_follow_up: bool
+    conversation_context: str | None = None
+
+    @property
+    def support_question(self) -> str:
+        """Question text used for term-based support checks."""
+        return self.retrieval_question
+
+
+@dataclass(frozen=True)
+class MemoryAnswer:
+    """Answer derived directly from prior result rows."""
+
+    answer: str
+    rows: list[dict[str, Any]]
+    columns: list[str]
+    source_turn: ConversationTurn
 
 
 @dataclass(frozen=True)
@@ -25,6 +104,8 @@ class ConversationTurn:
     resolved_question: str
     answer: dict[str, Any]
     generated_sql: dict[str, Any]
+    query_results: dict[str, Any]
+    retrieved_documents: list[dict[str, Any]]
     pipeline_stage: str
 
     @property
@@ -34,6 +115,11 @@ class ConversationTurn:
             "sql_executed_successfully",
             "sql_executed_with_fallback",
         } and bool(self.generated_sql.get("sql"))
+
+    @property
+    def has_result_rows(self) -> bool:
+        """Return true when this turn displayed rows the user can refer to."""
+        return bool(self.query_results.get("rows"))
 
 
 class ConversationMemory:
@@ -58,6 +144,10 @@ class ConversationMemory:
             return question
         return resolve_follow_up(question, previous_turn.original_question)
 
+    def resolve_question(self, user_question: str) -> str:
+        """Compatibility wrapper returning only the prompt-facing question."""
+        return self.resolve(user_question).resolved_question
+
     def record(self, response: dict[str, Any]) -> None:
         """Store a completed pipeline response."""
         self.turns.append(
@@ -66,6 +156,8 @@ class ConversationMemory:
                 resolved_question=response.get("resolved_question", response["original_question"]),
                 answer=response.get("answer", {}),
                 generated_sql=response.get("generated_sql", {}),
+                query_results=response.get("query_results", {}),
+                retrieved_documents=response.get("retrieved_documents", []),
                 pipeline_stage=response.get("pipeline_stage", ""),
             )
         )

@@ -6,6 +6,12 @@ from app.rag.retriever import OracleRAGRetriever
 
 DOCUMENTS = [
     {
+        "id": "schema_product_sales",
+        "title": "Product Sales Dataset Table Description",
+        "type": "table_schema",
+        "content": "The product_sales table contains sales, category, revenue, and profit rows.",
+    },
+    {
         "id": "kpi_revenue",
         "title": "Revenue KPI Definition",
         "type": "kpi_definition",
@@ -82,7 +88,7 @@ def test_retrieve_uses_oracle_scored_documents() -> None:
     cursor = FakeCursor()
     connection = FakeConnection(cursor)
     retriever = OracleRAGRetriever(
-        documents=DOCUMENTS,
+        documents=DOCUMENTS[1:],
         top_k=1,
         connection_factory=lambda: connection,
         embedding_client=FakeEmbeddingClient(),
@@ -91,7 +97,7 @@ def test_retrieve_uses_oracle_scored_documents() -> None:
 
     documents = retriever.retrieve("total sales by category")
 
-    assert documents == [DOCUMENTS[0]]
+    assert documents == [DOCUMENTS[1]]
     assert "APP_RAG_DOCUMENTS" in cursor.statement
     assert "VECTOR_DISTANCE" in cursor.statement
     assert cursor.parameters["top_k"] == 1
@@ -100,7 +106,7 @@ def test_retrieve_uses_oracle_scored_documents() -> None:
 
 def test_retrieve_falls_back_to_local_search_when_oracle_is_unavailable() -> None:
     retriever = OracleRAGRetriever(
-        documents=DOCUMENTS,
+        documents=DOCUMENTS[1:],
         top_k=1,
         connection_factory=lambda: (_ for _ in ()).throw(RuntimeError("offline")),
         embedding_client=FailingEmbeddingClient(),
@@ -109,4 +115,19 @@ def test_retrieve_falls_back_to_local_search_when_oracle_is_unavailable() -> Non
 
     documents = retriever.retrieve("total profit")
 
-    assert documents == [DOCUMENTS[1]]
+    assert documents == [DOCUMENTS[2]]
+
+
+def test_retrieve_includes_table_schema_when_only_kpi_matches_locally() -> None:
+    retriever = OracleRAGRetriever(
+        documents=DOCUMENTS,
+        top_k=2,
+        connection_factory=lambda: (_ for _ in ()).throw(RuntimeError("offline")),
+        embedding_client=FailingEmbeddingClient(),
+        auto_seed=False,
+    )
+
+    documents = retriever.retrieve("total profit")
+
+    assert documents[0]["type"] == "table_schema"
+    assert documents[1]["id"] == "kpi_profit"

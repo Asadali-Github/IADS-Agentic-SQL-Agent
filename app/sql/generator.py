@@ -37,7 +37,16 @@ class OracleSelectAISQLGenerator:
                 reasoning="SQL generation skipped because the prompt was empty.",
             )
 
+        fallback_sql = fallback_sql_for_prompt(prompt)
         if not self.profile_name:
+            if fallback_sql:
+                return self._result(
+                    sql=fallback_sql,
+                    reasoning=(
+                        "SELECT_AI_PROFILE is not set; used deterministic fallback SQL."
+                    ),
+                    provider="local_fallback",
+                )
             return self._result(
                 sql=None,
                 reasoning="SQL generation skipped because SELECT_AI_PROFILE is not set.",
@@ -47,7 +56,6 @@ class OracleSelectAISQLGenerator:
             with self.connection_factory() as connection:
                 generated_sql = self._call_select_ai(connection, prompt)
         except Exception as exc:  # pragma: no cover - exercised by live DB smoke tests
-            fallback_sql = fallback_sql_for_prompt(prompt)
             if fallback_sql:
                 return self._result(
                     sql=fallback_sql,
