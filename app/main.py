@@ -5,7 +5,30 @@ from __future__ import annotations
 import json
 import sys
 
+from fastapi import FastAPI
+from pydantic import BaseModel
+
 from app.agents.query_orchestrator import QueryOrchestrator
+
+app = FastAPI(title="IADS Agentic SQL Agent")
+
+
+class QueryRequest(BaseModel):
+    question: str
+
+
+@app.get("/")
+def read_root() -> dict:
+    """Health check endpoint."""
+    return {"status": "ok", "service": "IADS Agentic SQL Agent"}
+
+
+@app.post("/query")
+def process_query(request: QueryRequest) -> dict:
+    """Process a natural language question and return SQL results."""
+    orchestrator = QueryOrchestrator()
+    response = orchestrator.process_question(request.question)
+    return response
 
 
 def main() -> None:
