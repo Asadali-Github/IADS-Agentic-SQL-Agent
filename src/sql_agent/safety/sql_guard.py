@@ -1,10 +1,7 @@
 """SQL safety guard — blocks DDL/DML, parses with sqlglot.
 
 Owner: Asad
-Status: placeholder — implement during the hackathon.
+Status: INTERFACE SPEC. The read-only single-SELECT guard is realized in
+`app/sql/validator.py`.
 
-TODO:
-- Define the public interface here
-- Implement the logic
-- Write tests in tests/unit/test_sql_guard.py
 """

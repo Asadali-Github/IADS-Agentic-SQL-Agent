@@ -1,12 +1,9 @@
 """Autonomous Database connection pool.
 
 Owner: Hassan
-Status: placeholder — implement during the hackathon.
+Status: INTERFACE SPEC. Live runs connect to OCI Autonomous Database via
+`oracledb`; offline runs use `evaluation/local_db.py` (DuckDB over the seed).
 
-TODO:
-- Define the public interface here
-- Implement the logic
-- Write tests in tests/unit/test_connection.py
 """
 """
 Managed Oracle Autonomous Database connection pool.

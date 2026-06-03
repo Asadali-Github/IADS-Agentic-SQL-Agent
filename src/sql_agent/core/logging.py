@@ -1,10 +1,7 @@
 """Structured logging setup using structlog.
 
 Owner: Omar
-Status: placeholder — implement during the hackathon.
+Status: EXTENSION POINT. The running app uses standard logging; structlog
+wiring is the target.
 
-TODO:
-- Define the public interface here
-- Implement the logic
-- Write tests in tests/unit/test_logging.py
 """

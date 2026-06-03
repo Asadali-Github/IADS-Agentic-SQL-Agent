@@ -40,7 +40,42 @@ We made three explicit trade-offs:
                             └──────────────────────────────────────────┘
 ```
 
-## The five-stage agent
+## Runtime composition (what actually runs)
+
+The diagram above is the conceptual design (ADR-001). In this submission the
+**live entrypoint is the `app/` package**, which composes those stages as one
+synchronous pass — fast, observable, and easy to demo. `src/sql_agent/` holds
+the typed stage *interfaces* (`agents/`), the production **Summariser**
+(`agents/summariser.py`, imported directly by the running pipeline), and the
+retrieval / safety / evaluation helpers. As-built flow:
+
+```
+Streamlit (frontend/streamlit_app.py)
+   |  HTTP
+FastAPI (app/main.py)  ->  FullPipeline.run()   [app/pipeline.py]
+  1. Multi-turn resolve + glossary enrich   [app/pipeline.py, retrieval/glossary.py]
+  2. RAG schema/KPI retrieval               [app/rag/retriever.py]      -- OCI GenAI embeddings / 23ai Vector*
+  3. Text-to-SQL                            [app/sql/generator.py]      -- OCI Select AI -> OCI GenAI (Cohere)
+  4. Validate: single read-only SELECT      [app/sql/validator.py, safety/sql_guard*]
+  5. Execute                                [evaluation/local_db.py offline | OCI Autonomous DB live]
+  6. If 0 rows -> VECTOR ROW-FALLBACK        [retrieval/row_fallback.py]  -- nearest real rows ("similar results")
+  7. Summarise + insights + chart + confidence  [agents/summariser.py]
+```
+
+\* `23ai Vector` and direct GenAI embeddings are the pluggable production
+backends; offline the same interfaces are served by an in-memory lexical index
+and lexical row-similarity, so the demo runs with no cloud dependency. Raw seed
+CSVs stage through **OCI Object Storage** before loading into Autonomous Database.
+
+Two behaviours make this an **agent**, not a one-shot translator:
+
+- **Multi-turn context** — a follow-up like "...and by category?" is resolved
+  against the previous question within the session, not answered blind.
+- **Vector/similarity decisioning** — when an exact match does not exist, the
+  agent returns the nearest real rows flagged as *approximate* instead of "no
+  results", directly satisfying the brief's "similar results" requirement.
+
+## The agent stages
 
 Each stage has a single responsibility and a typed input/output contract.
 
@@ -135,15 +170,23 @@ Architecture Decision Records live in [`decisions/`](decisions/):
 ## Project structure
 
 ```
-src/sql_agent/
-├── config/           # Typed settings — Pydantic Settings reads .env
-├── core/             # Domain models (Pydantic), exceptions, logging
-├── llm/              # OCI GenAI client wrapper + prompt loader
-├── retrieval/        # Embeddings + vector store + schema retriever
-├── database/         # Connection pool + safe executor + introspection
-├── agents/           # Each stage; orchestrator runs the pipeline
-├── safety/           # SQL guard + PII filter
-└── api/              # FastAPI app + routes
+app/                   # >>> LIVE RUNTIME <<<
+├── main.py            # FastAPI entrypoint
+├── pipeline.py        # FullPipeline.run() — composes the stages (single pass)
+├── rag/               # RAG retrieval + embeddings over schema/KPI docs
+├── sql/               # Select AI text-to-SQL, prompt builder, validator
+└── agents/            # request orchestration
+
+frontend/              # Streamlit chat UI (insights, chart, confidence, clarify)
+
+src/sql_agent/         # typed interfaces + shared libraries
+├── core/              # Domain models (Pydantic), exceptions
+├── agents/            # stage interface specs (ADR-001) + production Summariser
+├── retrieval/         # glossary, row_fallback (vector fallback), vector-store iface
+├── safety/            # PII filter (+ SQL-guard / obfuscator interfaces)
+└── api/               # FastAPI app + typed schemas
+
+evaluation/            # benchmark harness, metrics, offline LocalDB (DuckDB)
 ```
 
 **Boundaries:**

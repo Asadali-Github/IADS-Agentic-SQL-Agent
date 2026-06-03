@@ -1,7 +1,8 @@
 """Dynamic few-shot injector — vector-searches similar past queries for prompting.
 
 Owner: Abdulqoyum + Marthi
-Status: scaffold — implement during the hackathon.
+Status: EXTENSION POINT. Dynamic vector-selected few-shots; the running
+prompt builder uses curated RAG context today.
 
 Why this exists:
   A fixed system prompt can't anticipate every question shape. Instead, keep

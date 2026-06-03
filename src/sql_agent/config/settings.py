@@ -1,12 +1,9 @@
 """Typed application settings using Pydantic Settings.
 
 Owner: Hassan
-Status: placeholder — implement during the hackathon.
+Status: INTERFACE SPEC. Target typed-settings layer; the running app reads
+configuration from the environment directly today.
 
-TODO:
-- Define the public interface here
-- Implement the logic
-- Write tests in tests/unit/test_settings.py
 """
 
 from pydantic_settings import BaseSettings

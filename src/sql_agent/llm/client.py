@@ -1,10 +1,7 @@
 """OCI Generative AI client wrapper.
 
 Owner: Asad
-Status: placeholder — implement during the hackathon.
+Status: INTERFACE SPEC. The running app reaches OCI Generative AI through
+Oracle Select AI (`app/sql/generator.py`); this is the direct-GenAI client target.
 
-TODO:
-- Define the public interface here
-- Implement the logic
-- Write tests in tests/unit/test_client.py
 """

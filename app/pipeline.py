@@ -92,6 +92,24 @@ class SQLSource:
     _MEASURE_COL = {"revenue": "revenue", "sales": "revenue", "turnover": "revenue",
                     "profit": "profit", "units": "quantity", "quantity": "quantity"}
 
+    def _entity_filter_sql(self, question: str, require_modelnum: bool = False):
+        """Build a single-product filter SQL from a "<measure> for <entity>"
+        question, or None. With require_modelnum=True it only fires when the
+        entity has BOTH a letter and a digit (model numbers like "iPhone 15"),
+        so dimensions (region/category) and bare years never match."""
+        m = self._ENTITY_RE.search(question)
+        if not m:
+            return None
+        measure = self._MEASURE_COL.get(m.group(1).lower(), "revenue")
+        entity = re.sub(r"[?.!]+$", "", m.group(4)).strip().strip("'\"")
+        entity = re.sub(r"\b(category|product|region|in \d{4}.*)\b.*$", "", entity, flags=re.I).strip()
+        if not entity:
+            return None
+        if require_modelnum and not (re.search(r"[A-Za-z]", entity) and re.search(r"\d", entity)):
+            return None
+        return (f"SELECT product_name, SUM({measure}) AS {measure} FROM product_sales "
+                f"WHERE product_name = '{entity}' GROUP BY product_name")
+
     def generate(self, question: str, prompt: Optional[str] = None) -> dict:
         # Live path (Oracle Select AI) when configured.
         if self._live is not None and prompt:
@@ -103,6 +121,14 @@ class SQLSource:
         nq = _norm(question)
         q_tokens = set(nq.split())
         wants_breakdown = " by " in f" {nq} "
+
+        # Specific-product questions (model numbers like "iPhone 15") route straight
+        # to the entity-template, ahead of fuzzy cache matching, so the vector
+        # row-fallback engages when the product is absent.
+        specific = self._entity_filter_sql(question, require_modelnum=True)
+        if specific is not None:
+            return {"sql": specific, "provider": "offline_template",
+                    "approximate": False, "clarification": None}
 
         best, best_score = None, 0.0
         for entry in self._cache:
@@ -122,16 +148,10 @@ class SQLSource:
         # Offline entity-filter template: "<measure> for <entity>" -> a product filter.
         # Lets arbitrary single-entity questions run offline AND exercise the
         # similarity row-fallback when the entity doesn't exist / is misspelled.
-        m = self._ENTITY_RE.search(question)
-        if m:
-            measure = self._MEASURE_COL.get(m.group(1).lower(), "revenue")
-            entity = re.sub(r"[?.!]+$", "", m.group(4)).strip().strip("'\"")
-            entity = re.sub(r"\b(category|product|region|in \d{4}.*)\b.*$", "", entity, flags=re.I).strip()
-            if entity:
-                sql = (f"SELECT product_name, SUM({measure}) AS {measure} FROM product_sales "
-                       f"WHERE product_name = '{entity}' GROUP BY product_name")
-                return {"sql": sql, "provider": "offline_template", "approximate": False,
-                        "clarification": None}
+        tmpl = self._entity_filter_sql(question)
+        if tmpl is not None:
+            return {"sql": tmpl, "provider": "offline_template", "approximate": False,
+                    "clarification": None}
         return {"sql": None, "provider": "offline_cache", "approximate": False,
                 "clarification": ("I can only answer the curated demo questions while running "
                                   "offline. Try one of the suggested questions, or set "
