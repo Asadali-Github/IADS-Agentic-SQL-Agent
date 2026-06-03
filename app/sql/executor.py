@@ -6,17 +6,12 @@ import os
 from collections.abc import Callable
 from datetime import date, datetime
 from decimal import Decimal
-from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
 
+from app.sql.oracle_connection import connect_adb
 from app.sql.validator import validate_sql
-
-try:
-    import oracledb
-except ModuleNotFoundError:  # pragma: no cover - depends on local environment
-    oracledb = None  # type: ignore[assignment]
 
 
 ConnectionFactory = Callable[[], Any]
@@ -32,7 +27,7 @@ class OracleSQLExecutor:
         timeout_seconds: int | None = None,
     ) -> None:
         load_dotenv()
-        self.connection_factory = connection_factory or self._connect_adb
+        self.connection_factory = connection_factory or connect_adb
         self.max_rows = max_rows if max_rows is not None else self._env_int(
             "AGENT_MAX_ROWS_RETURNED",
             500,
@@ -51,7 +46,8 @@ class OracleSQLExecutor:
                 error=validation["reason"],
             )
 
-        if not sql.strip():
+        safe_sql = validation.get("safe_sql") or sql.strip()
+        if not safe_sql:
             return self._result(
                 success=False,
                 error="Empty SQL query.",
@@ -62,7 +58,7 @@ class OracleSQLExecutor:
                 self._apply_timeout(connection)
                 with connection.cursor() as cursor:
                     cursor.arraysize = min(max(self.max_rows, 1), 1000)
-                    cursor.execute(sql)
+                    cursor.execute(safe_sql)
 
                     columns = [description[0] for description in cursor.description or []]
                     fetched_rows = cursor.fetchmany(self.max_rows + 1)
@@ -87,43 +83,9 @@ class OracleSQLExecutor:
                 error=f"Oracle execution failed: {exc}",
             )
 
-    def _connect_adb(self) -> Any:
-        if oracledb is None:
-            raise RuntimeError("The oracledb package is not installed.")
-
-        connect_kwargs: dict[str, str] = {
-            "user": self._required_env("ADB_USER"),
-            "password": self._required_env("ADB_PASSWORD"),
-            "dsn": self._required_env("ADB_DSN"),
-        }
-
-        wallet_location = os.getenv("ADB_WALLET_LOCATION")
-        if wallet_location:
-            resolved_wallet_location = self._resolve_project_path(wallet_location)
-            connect_kwargs["config_dir"] = resolved_wallet_location
-            connect_kwargs["wallet_location"] = resolved_wallet_location
-
-        wallet_password = os.getenv("ADB_WALLET_PASSWORD")
-        if wallet_password:
-            connect_kwargs["wallet_password"] = wallet_password
-
-        return oracledb.connect(**connect_kwargs)
-
     def _apply_timeout(self, connection: Any) -> None:
         if hasattr(connection, "call_timeout"):
             connection.call_timeout = self.timeout_seconds * 1000
-
-    def _required_env(self, name: str) -> str:
-        value = os.getenv(name)
-        if not value:
-            raise RuntimeError(f"Missing required environment variable: {name}")
-        return value
-
-    def _resolve_project_path(self, value: str) -> str:
-        path = Path(value).expanduser()
-        if not path.is_absolute():
-            path = Path.cwd() / path
-        return str(path.resolve())
 
     def _env_int(self, name: str, default: int) -> int:
         value = os.getenv(name)
