@@ -22,12 +22,17 @@ from sql_agent.core.exceptions import (
 
 router = APIRouter()
 
-# Integration (Asad): the real end-to-end pipeline. Imported defensively so the
-# API still boots (falling back to the stub) if optional deps are missing.
+# Integration (Asad): the production selector picks the LIVE Oracle backend
+# (QueryOrchestrator: ADB + Select AI + 23ai vector) when OCI is configured, and
+# the offline DuckDB pipeline otherwise. Imported defensively so the API still
+# boots (falling back to the stub) if optional deps are missing.
 try:  # pragma: no cover - import guarded
-    from app.pipeline import answer_question as _pipeline_answer
+    from app.production_pipeline import answer_question as _pipeline_answer
 except Exception:  # noqa: BLE001
-    _pipeline_answer = None
+    try:
+        from app.pipeline import answer_question as _pipeline_answer
+    except Exception:  # noqa: BLE001
+        _pipeline_answer = None
 
 
 def _pipeline_query(question: str, session_id: str) -> QueryResponse:

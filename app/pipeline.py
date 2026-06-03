@@ -200,12 +200,16 @@ class FullPipeline:
         return get_local_db().execute(sql)
 
     def _retrieve(self, question: str) -> list[dict]:
-        """Best-effort RAG context (informational); never breaks the pipeline."""
+        """Best-effort RAG context. Uses the team's Oracle 23ai vector retriever
+        when OCI is reachable, transparently falling back to its local keyword
+        search offline. Never breaks the pipeline."""
         try:
             if self._retriever is None:
-                from app.rag.retriever import LangChainRAGRetriever
+                from app.rag.retriever import OracleRAGRetriever
 
-                self._retriever = LangChainRAGRetriever()
+                # auto_seed=False: never touch ADB on construction; retrieve()
+                # falls back to local keyword search when OCI is unavailable.
+                self._retriever = OracleRAGRetriever(auto_seed=False)
             return self._retriever.retrieve(question)
         except Exception:  # noqa: BLE001 - retrieval optional offline
             return []
