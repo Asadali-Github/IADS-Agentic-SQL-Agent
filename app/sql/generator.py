@@ -8,6 +8,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 
+from app.sql.fallbacks import fallback_sql_for_prompt
 from app.sql.oracle_connection import connect_adb
 
 ConnectionFactory = Callable[[], Any]
@@ -46,6 +47,14 @@ class OracleSelectAISQLGenerator:
             with self.connection_factory() as connection:
                 generated_sql = self._call_select_ai(connection, prompt)
         except Exception as exc:  # pragma: no cover - exercised by live DB smoke tests
+            fallback_sql = fallback_sql_for_prompt(prompt)
+            if fallback_sql:
+                return self._result(
+                    sql=fallback_sql,
+                    reasoning="Oracle Select AI failed; used deterministic fallback SQL.",
+                    provider="local_fallback",
+                    error=str(exc),
+                )
             return self._result(
                 sql=None,
                 reasoning="Oracle Select AI SQL generation failed.",
@@ -92,13 +101,14 @@ class OracleSelectAISQLGenerator:
         self,
         sql: str | None,
         reasoning: str,
+        provider: str = "oracle_select_ai",
         error: str | None = None,
     ) -> dict:
         return {
             "sql": sql,
             "clarification_question": None,
             "reasoning": reasoning,
-            "provider": "oracle_select_ai",
+            "provider": provider,
             "error": error,
         }
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -14,13 +15,74 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - depends on local environment
     oracledb = None  # type: ignore[assignment]
 
+_POOL: Any | None = None
+
 
 def connect_adb() -> Any:
-    """Connect to ADB using the project environment and wallet."""
+    """Acquire an ADB connection using the project environment and wallet."""
+    global _POOL
+    load_dotenv()
+    max_attempts = int(os.getenv("AGENT_DB_CONNECT_RETRIES", "6"))
+    last_error = None
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return get_adb_pool().acquire()
+        except Exception as exc:
+            last_error = exc
+            _close_pool()
+            if attempt == max_attempts:
+                break
+            time.sleep(attempt)
+
+    raise last_error
+
+
+def _close_pool() -> None:
+    global _POOL
+    if _POOL is None:
+        return
+
+    try:
+        _POOL.close(force=True)
+    except Exception:
+        pass
+    finally:
+        _POOL = None
+
+
+def get_adb_pool() -> Any:
+    """Return a small process-local Oracle connection pool."""
+    global _POOL
+    if _POOL is not None:
+        return _POOL
+
     load_dotenv()
     if oracledb is None:
         raise RuntimeError("The oracledb package is not installed.")
 
+    connect_kwargs = _build_connect_kwargs()
+    max_attempts = int(os.getenv("AGENT_DB_CONNECT_RETRIES", "6"))
+    last_error = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            _POOL = oracledb.create_pool(
+                **connect_kwargs,
+                min=0,
+                max=4,
+                increment=1,
+            )
+            return _POOL
+        except Exception as exc:
+            last_error = exc
+            if attempt == max_attempts:
+                break
+            time.sleep(attempt)
+
+    raise last_error
+
+
+def _build_connect_kwargs() -> dict[str, str]:
     wallet_location = _resolve_project_path(_required_env("ADB_WALLET_LOCATION"))
     connect_kwargs: dict[str, str] = {
         "user": _required_env("ADB_USER"),
@@ -33,7 +95,7 @@ def connect_adb() -> Any:
     if wallet_password:
         connect_kwargs["wallet_password"] = wallet_password
 
-    return oracledb.connect(**connect_kwargs)
+    return connect_kwargs
 
 
 def resolve_adb_dsn(dsn: str, wallet_location: str) -> str:
