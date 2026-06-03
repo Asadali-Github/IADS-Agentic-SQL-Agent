@@ -17,7 +17,7 @@ from typing import Any
 # ---------------------------------------------------------------------------
 
 
-class AppBaseException(Exception):
+class AppBaseError(Exception):
     """Root of the application exception hierarchy.
 
     Every subclass must set a default ``status_code`` (HTTP) and a
@@ -52,7 +52,7 @@ class AppBaseException(Exception):
 # ---------------------------------------------------------------------------
 
 
-class ValidationError(AppBaseException):
+class ValidationError(AppBaseError):
     """Raised when request payload or query parameters fail validation."""
 
     status_code = 422
@@ -70,7 +70,7 @@ class ValidationError(AppBaseException):
             self.detail["field"] = field
 
 
-class QueryParseError(AppBaseException):
+class QueryParseError(AppBaseError):
     """Raised when the natural-language query cannot be parsed or understood."""
 
     status_code = 400
@@ -88,7 +88,7 @@ class QueryParseError(AppBaseException):
             self.detail["raw_query"] = raw_query
 
 
-class AuthenticationError(AppBaseException):
+class AuthenticationError(AppBaseError):
     """Raised when a request is missing or carries invalid credentials."""
 
     status_code = 401
@@ -103,7 +103,7 @@ class AuthenticationError(AppBaseException):
         super().__init__(message, detail=detail)
 
 
-class AuthorizationError(AppBaseException):
+class AuthorizationError(AppBaseError):
     """Raised when a caller is authenticated but lacks permission."""
 
     status_code = 403
@@ -121,7 +121,7 @@ class AuthorizationError(AppBaseException):
             self.detail["resource"] = resource
 
 
-class ResourceNotFoundError(AppBaseException):
+class ResourceNotFoundError(AppBaseError):
     """Raised when a requested resource does not exist."""
 
     status_code = 404
@@ -142,7 +142,7 @@ class ResourceNotFoundError(AppBaseException):
             self.detail["resource_id"] = resource_id
 
 
-class RateLimitError(AppBaseException):
+class RateLimitError(AppBaseError):
     """Raised when a caller exceeds their allowed request rate."""
 
     status_code = 429
@@ -165,7 +165,7 @@ class RateLimitError(AppBaseException):
 # ---------------------------------------------------------------------------
 
 
-class UpstreamServiceError(AppBaseException):
+class UpstreamServiceError(AppBaseError):
     """Raised when a call to an upstream service (LLM, vector DB, …) fails."""
 
     status_code = 502
@@ -229,7 +229,7 @@ class VectorStoreError(UpstreamServiceError):
         )
 
 
-class DatabaseError(AppBaseException):
+class DatabaseError(AppBaseError):
     """Raised on unexpected failures when reading from or writing to the DB."""
 
     status_code = 500
@@ -247,7 +247,7 @@ class DatabaseError(AppBaseException):
             self.detail["operation"] = operation
 
 
-class ServiceUnavailableError(AppBaseException):
+class ServiceUnavailableError(AppBaseError):
     """Raised when the service is temporarily unable to handle requests
     (e.g. during startup, maintenance, or a dependency outage)."""
 
@@ -266,7 +266,7 @@ class ServiceUnavailableError(AppBaseException):
             self.detail["retry_after_seconds"] = retry_after_seconds
 
 
-class TimeoutError(AppBaseException):  # noqa: A001  (shadows built-in intentionally)
+class TimeoutError(AppBaseError):  # noqa: A001  (shadows built-in intentionally)
     """Raised when an internal operation exceeds its allowed time budget."""
 
     status_code = 504
@@ -292,7 +292,7 @@ class TimeoutError(AppBaseException):  # noqa: A001  (shadows built-in intention
 # ---------------------------------------------------------------------------
 
 __all__ = [
-    "AppBaseException",
+    "AppBaseError",
     # 4xx
     "ValidationError",
     "QueryParseError",

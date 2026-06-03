@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
@@ -50,7 +50,7 @@ class Question(BaseModel):
         validation_alias=AliasChoices("text", "question"),
         description="The user's question in natural language.",
     )
-    difficulty: Optional[Difficulty] = None
+    difficulty: Difficulty | None = None
     tags: list[str] = Field(default_factory=list, description="SQL-pattern tags, e.g. 'join'.")
 
 
@@ -80,9 +80,9 @@ class CandidateSQL(BaseModel):
     """A SQL statement proposed by the generator for a question."""
 
     sql: str
-    model: Optional[str] = Field(None, description="OCI GenAI model id that produced it.")
+    model: str | None = Field(None, description="OCI GenAI model id that produced it.")
     attempt: int = Field(1, ge=1, description="1 = first try; >1 = a retry/correction.")
-    reasoning: Optional[str] = None
+    reasoning: str | None = None
 
 
 class ExecutionResult(BaseModel):
@@ -92,11 +92,11 @@ class ExecutionResult(BaseModel):
     rows: list[Row] = Field(default_factory=list)
     row_count: int = 0
     success: bool = True
-    error: Optional[str] = None
-    latency_ms: Optional[float] = Field(None, description="DB execution latency in milliseconds.")
+    error: str | None = None
+    latency_ms: float | None = Field(None, description="DB execution latency in milliseconds.")
 
     @classmethod
-    def failure(cls, error: str) -> "ExecutionResult":
+    def failure(cls, error: str) -> ExecutionResult:
         return cls(success=False, error=error)
 
 
@@ -110,7 +110,7 @@ class RetrievedSchema(BaseModel):
     columns: dict[str, list[str]] = Field(
         default_factory=dict, description="Optional table -> column names map."
     )
-    ddl: Optional[str] = Field(None, description="Optional raw DDL snippet shown to the model.")
+    ddl: str | None = Field(None, description="Optional raw DDL snippet shown to the model.")
 
 
 # ---------------------------------------------------------------------------
@@ -124,10 +124,10 @@ class ChartSpec(BaseModel):
     """
 
     type: Literal["bar", "line", "pie", "scatter", "none"] = "none"
-    x: Optional[str] = Field(None, description="Column for the x-axis / categories.")
-    y: Optional[str] = Field(None, description="Column for the y-axis / values (the measure).")
-    title: Optional[str] = None
-    reason: Optional[str] = Field(None, description="Why this chart fits the data.")
+    x: str | None = Field(None, description="Column for the x-axis / categories.")
+    y: str | None = Field(None, description="Column for the y-axis / values (the measure).")
+    title: str | None = None
+    reason: str | None = Field(None, description="Why this chart fits the data.")
 
 
 class AnswerSummary(BaseModel):
@@ -142,15 +142,15 @@ class AnswerSummary(BaseModel):
         default_factory=list,
         description="Deterministic business insights derived from the rows (shares, trends).",
     )
-    chart: Optional["ChartSpec"] = Field(None, description="Recommended chart for the result.")
-    clarification: Optional[str] = Field(
+    chart: ChartSpec | None = Field(None, description="Recommended chart for the result.")
+    clarification: str | None = Field(
         None, description="A clarifying question when the request is ambiguous (else None)."
     )
     tables_used: list[str] = Field(
         default_factory=list, description="Business-readable tables the query drew on."
     )
-    sql: Optional[str] = Field(None, description="The SQL that produced the answer (for the panel).")
-    confidence: Optional[float] = Field(None, ge=0.0, le=1.0)
+    sql: str | None = Field(None, description="The SQL that produced the answer (for the panel).")
+    confidence: float | None = Field(None, ge=0.0, le=1.0)
 
 
 class Metric(BaseModel):
@@ -158,24 +158,24 @@ class Metric(BaseModel):
 
     name: str
     value: float
-    unit: Optional[str] = Field(None, description="e.g. 'ratio', 'ms', 'usd', 'count'.")
-    detail: Optional[str] = None
+    unit: str | None = Field(None, description="e.g. 'ratio', 'ms', 'usd', 'count'.")
+    detail: str | None = None
 
 
 class CaseResult(BaseModel):
     """Per-question outcome inside a benchmark run."""
 
     question_id: str
-    difficulty: Optional[Difficulty] = None
-    generated_sql: Optional[str] = None
+    difficulty: Difficulty | None = None
+    generated_sql: str | None = None
     execution_match: bool = False
     exact_set_match: bool = False
     ast_match: bool = False  # logic-level SQL equivalence (alias/format/dialect-insensitive)
     partial_match: float = Field(0.0, ge=0.0, le=1.0)
     retries: int = 0
-    latency_ms: Optional[float] = None
-    token_cost_usd: Optional[float] = None
-    error: Optional[str] = None
+    latency_ms: float | None = None
+    token_cost_usd: float | None = None
+    error: str | None = None
     passed: bool = False
 
 
@@ -184,7 +184,7 @@ class BenchmarkResult(BaseModel):
 
     run_id: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    git_sha: Optional[str] = None
+    git_sha: str | None = None
     mode: str = Field("unknown", description="How the agent ran: live_oci | offline_cache | stub | mock.")
     n_questions: int = 0
     n_passed: int = 0
@@ -196,6 +196,6 @@ class BenchmarkResult(BaseModel):
     def pass_rate(self) -> float:
         return self.n_passed / self.n_questions if self.n_questions else 0.0
 
-    def metric(self, name: str) -> Optional[Metric]:
+    def metric(self, name: str) -> Metric | None:
         """Convenience lookup by metric name."""
         return next((m for m in self.metrics if m.name == name), None)

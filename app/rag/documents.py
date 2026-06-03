@@ -5,9 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from langchain_core.documents import Document
-
-
 DEFAULT_DOCS_PATH = Path(__file__).resolve().parents[2] / "data" / "placeholder_docs.json"
 
 
@@ -30,21 +27,3 @@ def load_documents(file_path: Path | None = None) -> list[dict]:
             )
 
     return documents
-
-
-def load_langchain_documents(file_path: Path | None = None) -> list[Document]:
-    """Load placeholder documents in LangChain's standard Document format."""
-    documents = load_documents(file_path)
-
-    return [
-        Document(
-            id=document["id"],
-            page_content=document["content"],
-            metadata={
-                "id": document["id"],
-                "title": document["title"],
-                "type": document["type"],
-            },
-        )
-        for document in documents
-    ]

@@ -29,14 +29,14 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass, field
-from typing import Callable, Optional
+from typing import Callable
 
 from pydantic import BaseModel, Field
 
 from sql_agent.core.models import Metric
 
 
-class BudgetExceeded(RuntimeError):
+class BudgetExceededError(RuntimeError):
     """Raised when a request exceeds its configured token-cost or call budget.
 
     The orchestrator can catch this to back off / degrade gracefully instead of
@@ -113,13 +113,13 @@ class TokenCounter:
                real tokenizer (e.g. the OCI/Cohere tokenizer) when available.
     """
 
-    tokenizer: Optional[Callable[[str], int]] = None
+    tokenizer: Callable[[str], int] | None = None
     usages: list[TokenUsage] = field(default_factory=list)
     # Cost-aware guardrails. None = unlimited. The orchestrator sets these per
     # request (e.g. budget_usd from settings, max_calls ~ AGENT_MAX_RETRIES + a
     # margin) and calls check() inside its loop.
-    budget_usd: Optional[float] = None
-    max_calls: Optional[int] = None
+    budget_usd: float | None = None
+    max_calls: int | None = None
 
     def _count(self, text: str) -> int:
         return self.tokenizer(text) if self.tokenizer else estimate_tokens(text)
@@ -164,7 +164,7 @@ class TokenCounter:
         return len(self.usages)
 
     @property
-    def remaining_usd(self) -> Optional[float]:
+    def remaining_usd(self) -> float | None:
         """USD left in the budget, or None if no budget is set."""
         if self.budget_usd is None:
             return None
@@ -188,9 +188,9 @@ class TokenCounter:
         return False
 
     def check(self) -> None:
-        """Raise BudgetExceeded if a limit has already been breached."""
+        """Raise BudgetExceededError if a limit has already been breached."""
         if self.over_budget:
-            raise BudgetExceeded(
+            raise BudgetExceededError(
                 f"token budget exceeded: ${self.total_cost_usd} spent over "
                 f"{self.n_calls} calls (budget=${self.budget_usd}, max_calls={self.max_calls})"
             )
