@@ -1,0 +1,74 @@
+[
+  {
+    "id": "schema_product_sales",
+    "title": "Product Sales Dataset Table Description",
+    "type": "table_schema",
+    "content": "The product_sales dataset is sourced from data/raw/product_sales_dataset_final.csv and contains 200000 sales order rows. It represents product-level order transactions with customer, geography, category, product, quantity, unit price, revenue, and profit fields. Recommended SQL table name after import: product_sales."
+  },
+  {
+    "id": "columns_order_customer",
+    "title": "Order And Customer Columns",
+    "type": "column_definition",
+    "content": "Order_ID is the unique order row identifier. Order_Date is the order date in MM-DD-YY format in the raw CSV. Customer_Name is the customer who placed the order. These columns support order counting, customer-level analysis, and time-based sales questions."
+  },
+  {
+    "id": "columns_geography",
+    "title": "Geography Columns",
+    "type": "column_definition",
+    "content": "City, State, Region, and Country describe the geographic location of each sale. Example Region values include South, Centre, East, and West. Use these columns for questions about sales by country, region, state, or city."
+  },
+  {
+    "id": "columns_product",
+    "title": "Product Classification Columns",
+    "type": "column_definition",
+    "content": "Category, Sub_Category, and Product_Name describe the sold product. Example categories include Accessories, Clothing & Apparel, and Electronics. Use Category for broad product grouping, Sub_Category for more detailed grouping, and Product_Name for individual product analysis."
+  },
+  {
+    "id": "columns_financial",
+    "title": "Quantity And Financial Columns",
+    "type": "column_definition",
+    "content": "Quantity is the number of units sold. Unit_Price is the price per unit. Revenue is the sales amount for the order row. Profit is the profit amount for the order row. The raw CSV headers for Unit_Price, Revenue, and Profit contain extra spaces, so they should be cleaned during database import."
+  },
+  {
+    "id": "kpi_revenue",
+    "title": "Revenue KPI Definition",
+    "type": "kpi_definition",
+    "content": "Revenue means the total sales amount. For this dataset, use SUM(Revenue) when answering revenue or sales questions. Revenue is already present as a column in the dataset, so future SQL should aggregate the Revenue column rather than recalculating it unless the user specifically asks for a calculation check."
+  },
+  {
+    "id": "kpi_profit",
+    "title": "Profit KPI Definition",
+    "type": "kpi_definition",
+    "content": "Profit means the total profit amount. Use SUM(Profit) for total profit questions. Profit margin can be calculated as SUM(Profit) / NULLIF(SUM(Revenue), 0)."
+  },
+  {
+    "id": "rule_time_analysis",
+    "title": "Time Analysis Business Rule",
+    "type": "business_rule",
+    "content": "For time-based questions, use Order_Date. The raw date format is MM-DD-YY. If a user asks for last month, this month, quarter, or year, the future SQL generator should translate that into a clear date range. If the current date or fiscal calendar is ambiguous, ask a clarification question."
+  },
+  {
+    "id": "rule_top_products",
+    "title": "Top Product Analysis Rule",
+    "type": "business_rule",
+    "content": "For top product questions, group by Product_Name and usually sort by SUM(Revenue), SUM(Quantity), or SUM(Profit), depending on whether the user asks for sales, units, or profitability. Include Category and Sub_Category when the user asks for product context."
+  },
+  {
+    "id": "rule_high_value_customer",
+    "title": "High-Value Customer Business Rule",
+    "type": "business_rule",
+    "content": "A high-value customer can be interpreted as a customer with high total revenue or high total profit. If the user does not specify the metric or threshold, ask a clarification question. If they provide a threshold such as above 5000, group by Customer_Name and filter using HAVING SUM(Revenue) above that threshold."
+  },
+  {
+    "id": "example_revenue_by_category",
+    "title": "Example Question And SQL Pattern: Revenue By Category",
+    "type": "example_sql",
+    "content": "Question: What were total sales by product category? SQL pattern: SELECT Category, SUM(Revenue) AS total_revenue FROM product_sales GROUP BY Category ORDER BY total_revenue DESC. Add a WHERE clause on Order_Date when the user specifies a time period."
+  },
+  {
+    "id": "example_profit_by_region",
+    "title": "Example Question And SQL Pattern: Profit By Region",
+    "type": "example_sql",
+    "content": "Question: Which regions generated the most profit? SQL pattern: SELECT Region, SUM(Profit) AS total_profit FROM product_sales GROUP BY Region ORDER BY total_profit DESC."
+  }
+]

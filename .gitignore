@@ -40,5 +40,10 @@ wallet/
 # Data / outputs
 data/*
 !data/.gitkeep
+!data/placeholder_docs.json
+!data/raw/
+!data/raw/.gitkeep
+!data/raw/README.md
+!data/raw/product_sales_dataset_final.csv
 evaluation/results/*
 !evaluation/results/.gitkeep
