@@ -448,16 +448,58 @@ class Summariser:
         rows = execution.rows if execution else []
         columns = execution.columns if execution else []
 
+        answer = None
+        important_numbers = []
+        trends_anomalies = []
+        final_takeaway = None
+
         if self.llm is not None:
-            answer = self._llm_answer(q_text, columns, rows, sql_text)
+            data = self._llm_answer(q_text, columns, rows, sql_text)
+            if data and data.get("answer"):
+                answer = str(data["answer"]).strip()
+                important_numbers = [str(x).strip() for x in data.get("important_numbers", []) if x]
+                trends_anomalies = [str(x).strip() for x in data.get("trends_anomalies", []) if x]
+                if data.get("final_takeaway"):
+                    final_takeaway = str(data["final_takeaway"]).strip()
             explanation = self._llm_explanation(q_text, sql_text, schema)
         else:
-            answer = self._fallback_answer(q_text, columns, rows)
             explanation = self._fallback_explanation(sql_text, tables)
+
+        if not answer:
+            answer = self._fallback_answer(q_text, columns, rows)
+
+        # Compute deterministic summaries if LLM did not supply them
+        if not important_numbers and rows:
+            profile = profile_result(columns, rows)
+            for col in profile.get("columns", []):
+                if col.get("dtype") == "numeric":
+                    fmt_sum = _fmt(col["name"], col["sum"])
+                    fmt_mean = _fmt(col["name"], col["mean"])
+                    important_numbers.append(f"Total {col['name'].replace('_', ' ').title()}: {fmt_sum} (Average: {fmt_mean})")
+            if not important_numbers:
+                important_numbers.append(f"Total rows: {len(rows)}")
+
+        if not trends_anomalies and rows:
+            trends_anomalies = generate_insights(q_text, columns, rows)
+
+        if not final_takeaway and rows:
+            dim_idx, measure_idx, _ = _column_roles(columns, rows)
+            if dim_idx is not None and measure_idx is not None:
+                try:
+                    top = max(rows, key=lambda r: r[measure_idx])
+                    dname, mname = columns[dim_idx], columns[measure_idx]
+                    final_takeaway = f"Top performer: {top[dim_idx]} with {_fmt(mname, top[measure_idx])} on {mname.replace('_', ' ')}."
+                except Exception:  # noqa: BLE001
+                    final_takeaway = f"The query successfully returned {len(rows)} records."
+            else:
+                final_takeaway = f"The query successfully returned {len(rows)} records."
 
         clarification = detect_clarification(q_text)
         summary = AnswerSummary(
             answer=answer,
+            important_numbers=important_numbers,
+            trends_anomalies=trends_anomalies,
+            final_takeaway=final_takeaway,
             explanation=explanation,
             insights=generate_insights(q_text, columns, rows),
             chart=suggest_chart(q_text, columns, rows),
@@ -475,7 +517,7 @@ class Summariser:
             self.tokens.record(self.model or "unknown", prompt, response)
         return response
 
-    def _llm_answer(self, question, columns, rows, sql) -> str:
+    def _llm_answer(self, question, columns, rows, sql) -> dict | None:
         profile = profile_result(columns, rows)
         # Context safeguard: show full rows only for small results; otherwise a
         # small sample + the deterministic profile (which the model must trust).
@@ -489,10 +531,7 @@ class Summariser:
             rows_preview=_rows_preview(columns, sample),
             sql=sql,
         )
-        data = _extract_json(self._complete(prompt))
-        if data and data.get("answer"):
-            return str(data["answer"]).strip()
-        return self._fallback_answer(question, columns, rows)
+        return _extract_json(self._complete(prompt))
 
     def _llm_explanation(self, question, sql, schema) -> list[str]:
         prompt = prompts.render(

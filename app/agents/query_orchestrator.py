@@ -33,7 +33,26 @@ class QueryOrchestrator:
 
     def process_question(self, user_question: str) -> dict:
         """Run the RAG-to-Select-AI-to-results pipeline for a user question."""
-        resolved_question = self.memory.resolve_question(user_question)
+        previous_turn = self.memory.latest_successful_turn()
+        previous_question = previous_turn.original_question if previous_turn else None
+        
+        is_related = False
+        resolved_question = user_question.strip()
+        
+        if previous_question:
+            from app.agents.followups import classify_and_rewrite_live
+            is_related, resolved_question = classify_and_rewrite_live(
+                resolved_question,
+                previous_question,
+                self.sql_generator.profile_name,
+                self.sql_generator.connection_factory,
+            )
+            
+        if not is_related and previous_question:
+            # Reset conversation memory to avoid contamination from prior queries
+            self.memory.turns = []
+            resolved_question = user_question.strip()
+
         retrieved_documents = self.retriever.retrieve(resolved_question)
         support_assessment = assess_question_support(user_question, retrieved_documents)
         if (

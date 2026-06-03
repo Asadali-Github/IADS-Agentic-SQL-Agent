@@ -26,4 +26,4 @@ Sample rows:
 ${rows_preview}
 
 Respond with a JSON object on a single line:
-{"answer": "<one sentence that answers the question>"}
+{"answer": "<direct executive summary sentence answering the question>", "important_numbers": ["<metric 1>", "<metric 2>"], "trends_anomalies": ["<trend/anomaly 1>", "<trend/anomaly 2>"], "final_takeaway": "<a single actionable takeaway sentence for a business manager>"}

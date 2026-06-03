@@ -57,7 +57,7 @@ def test_as_metric_shape():
 
 
 # --- cost-aware guardrails --------------------------------------------------
-from sql_agent.llm.token_counter import BudgetExceeded  # noqa: E402
+from sql_agent.llm.token_counter import BudgetExceededError  # noqa: E402
 
 
 def test_budget_remaining_and_over_budget():
@@ -79,7 +79,7 @@ def test_check_raises_budget_exceeded():
     tc = TokenCounter(budget_usd=0.0001)
     tc.record_counts("large", 1000, 1000)
     import pytest
-    with pytest.raises(BudgetExceeded):
+    with pytest.raises(BudgetExceededError):
         tc.check()
 
 

@@ -134,6 +134,18 @@ class AnswerSummary(BaseModel):
     """Natural-language answer the summariser returns to the UI."""
 
     answer: str = Field(..., description="One-sentence direct answer to the question.")
+    important_numbers: list[str] = Field(
+        default_factory=list,
+        description="Key numbers, totals, or aggregates extracted from the results.",
+    )
+    trends_anomalies: list[str] = Field(
+        default_factory=list,
+        description="Major trend shifts, growths, declines, or outlier anomalies.",
+    )
+    final_takeaway: Optional[str] = Field(
+        default=None,
+        description="A plain-English actionable conclusion/takeaway for a business manager.",
+    )
     explanation: list[str] = Field(
         default_factory=list,
         description="2-4 plain-English bullets explaining how the SQL works.",

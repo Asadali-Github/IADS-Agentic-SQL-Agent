@@ -65,52 +65,319 @@ html, body, [class*="css"] {
     font-family: 'Inter', sans-serif;
 }
 
-/* ── Page header ────────────────────────────────────────────── */
+/* ── Keyframe animations ───────────────────────────────────── */
+@keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(24px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+@keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%      { opacity: 0.6; transform: scale(0.95); }
+}
+@keyframes shimmer {
+    0%   { background-position: 0% 50%; }
+    50%  { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+@keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-4px); }
+}
+@keyframes gradientBorder {
+    0%   { border-color: rgba(15, 107, 138, 0.3); }
+    50%  { border-color: rgba(13, 148, 136, 0.5); }
+    100% { border-color: rgba(15, 107, 138, 0.3); }
+}
+
+/* ── Page header — animated gradient ───────────────────────── */
 .iads-header {
-    background: linear-gradient(135deg, #1e3a5f 0%, #0f6b8a 50%, #0d9488 100%);
-    border-radius: 16px;
-    padding: 2.2rem 2.5rem 2rem;
-    margin-bottom: 1.5rem;
-    box-shadow: 0 8px 32px rgba(14, 107, 138, 0.25);
+    background: linear-gradient(135deg, #1e3a5f 0%, #0f6b8a 30%, #0d9488 60%, #065f46 100%);
+    background-size: 300% 300%;
+    animation: shimmer 8s ease-in-out infinite;
+    border-radius: 20px;
+    padding: 2.5rem 2.5rem 2.2rem;
+    margin-bottom: 1.8rem;
+    box-shadow: 0 12px 40px rgba(14, 107, 138, 0.3), 0 0 0 1px rgba(255,255,255,0.05) inset;
     text-align: center;
+    position: relative;
+    overflow: hidden;
+}
+.iads-header::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(circle at 30% 50%, rgba(255,255,255,0.06) 0%, transparent 50%);
+    pointer-events: none;
 }
 .iads-header h1 {
     color: #ffffff;
-    font-size: 2.4rem;
+    font-size: 2.5rem;
     font-weight: 700;
-    margin: 0 0 0.3rem;
+    margin: 0 0 0.4rem;
     letter-spacing: -0.5px;
+    position: relative;
+    text-shadow: 0 2px 8px rgba(0,0,0,0.15);
 }
 .iads-header p {
-    color: rgba(255,255,255,0.82);
-    font-size: 1.05rem;
+    color: rgba(255,255,255,0.85);
+    font-size: 1.08rem;
     margin: 0;
+    position: relative;
 }
 .iads-badge {
     display: inline-block;
-    background: rgba(255,255,255,0.18);
-    border: 1px solid rgba(255,255,255,0.3);
-    border-radius: 20px;
-    padding: 3px 14px;
-    font-size: 0.75rem;
+    background: rgba(255,255,255,0.14);
+    border: 1px solid rgba(255,255,255,0.25);
+    border-radius: 24px;
+    padding: 5px 18px;
+    font-size: 0.76rem;
     color: #fff;
-    margin-top: 0.7rem;
-    letter-spacing: 0.5px;
+    margin-top: 0.9rem;
+    letter-spacing: 0.6px;
     font-weight: 500;
+    position: relative;
+    animation: float 4s ease-in-out infinite;
+    backdrop-filter: blur(4px);
+}
+
+/* ── Summary stats cards — glassmorphism ───────────────────── */
+.summary-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+    margin-bottom: 2rem;
+    animation: fadeInUp 0.6s ease-out 0.15s both;
+}
+.summary-card {
+    background: rgba(255, 255, 255, 0.65);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    border-radius: 18px;
+    padding: 1.4rem 1rem;
+    text-align: center;
+    transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.05);
+    position: relative;
+    overflow: hidden;
+}
+.summary-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, #0f6b8a, #0d9488, #34d399);
+    opacity: 0;
+    transition: opacity 0.25s ease;
+}
+.summary-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 12px 36px rgba(14, 107, 138, 0.15);
+    border-color: rgba(15, 107, 138, 0.3);
+}
+.summary-card:hover::before {
+    opacity: 1;
+}
+.summary-card .card-icon {
+    font-size: 2.2rem;
+    margin-bottom: 0.6rem;
+    display: block;
+}
+.summary-card .card-value {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: #1e3a5f;
+    margin-bottom: 0.25rem;
+    line-height: 1.3;
+}
+.summary-card .card-label {
+    font-size: 0.72rem;
+    color: #6b7280;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+}
+
+/* ── How It Works section ──────────────────────────────────── */
+.how-section {
+    margin: 1.5rem 0 2rem;
+    animation: fadeInUp 0.6s ease-out 0.3s both;
+}
+.how-section-title {
+    font-size: 0.76rem;
+    font-weight: 700;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 1rem;
+    text-align: center;
+}
+.how-steps {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.2rem;
+    position: relative;
+}
+.how-step {
+    text-align: center;
+    padding: 1.5rem 1.1rem 1.3rem;
+    background: linear-gradient(145deg, #f0f9ff 0%, #e8f4f8 100%);
+    border-radius: 16px;
+    border: 1px solid #bae6fd;
+    transition: transform 0.25s ease, box-shadow 0.25s ease;
+    position: relative;
+}
+.how-step:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 28px rgba(14, 107, 138, 0.12);
+}
+.how-step .step-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    background: linear-gradient(135deg, #0f6b8a, #0d9488);
+    color: #fff;
+    border-radius: 50%;
+    font-weight: 700;
+    font-size: 1rem;
+    margin-bottom: 0.8rem;
+    box-shadow: 0 4px 12px rgba(15, 107, 138, 0.3);
+}
+.how-step .step-title {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #1e3a5f;
+    margin-bottom: 0.35rem;
+}
+.how-step .step-desc {
+    font-size: 0.83rem;
+    color: #64748b;
+    line-height: 1.5;
+}
+.step-connector {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #94a3b8;
+    font-size: 1.2rem;
+    font-weight: 700;
+}
+
+/* ── Feature highlight cards ───────────────────────────────── */
+.features-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.9rem;
+    margin: 0.8rem 0 2rem;
+    animation: fadeInUp 0.6s ease-out 0.45s both;
+}
+.feature-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.85rem;
+    padding: 1.15rem 1.2rem;
+    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    border: 1.5px solid #e2e8f0;
+    border-radius: 14px;
+    transition: all 0.25s ease;
+    cursor: default;
+}
+.feature-card:hover {
+    background: linear-gradient(135deg, #ffffff 0%, #f0f9ff 100%);
+    border-color: #0f6b8a;
+    box-shadow: 0 6px 20px rgba(14, 107, 138, 0.1);
+    transform: translateY(-3px);
+}
+.feature-card .feat-icon {
+    font-size: 1.6rem;
+    flex-shrink: 0;
+    margin-top: 0.15rem;
+}
+.feature-card .feat-title {
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: #1e3a5f;
+    margin-bottom: 0.2rem;
+}
+.feature-card .feat-desc {
+    font-size: 0.78rem;
+    color: #64748b;
+    line-height: 1.45;
+}
+
+/* ── Data summary card ─────────────────────────────────────── */
+.data-summary-card {
+    background: linear-gradient(135deg, #f0f9ff 0%, #e8f4f8 40%, #f0fdf4 100%);
+    border: 1.5px solid #bae6fd;
+    border-radius: 14px;
+    padding: 1rem 1.3rem 1.1rem;
+    margin: 0.6rem 0 1rem;
+    box-shadow: 0 3px 16px rgba(14, 107, 138, 0.08);
+    animation: fadeIn 0.4s ease-out;
+}
+.data-summary-card .ds-title {
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: #0369a1;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 0.7rem;
+}
+.data-summary-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.8rem;
+}
+.ds-stat {
+    flex: 1;
+    min-width: 110px;
+    text-align: center;
+    padding: 0.65rem 0.5rem;
+    background: rgba(255, 255, 255, 0.75);
+    backdrop-filter: blur(8px);
+    border-radius: 11px;
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+}
+.ds-stat .ds-val {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #1e3a5f;
+    line-height: 1.3;
+}
+.ds-stat .ds-lbl {
+    font-size: 0.68rem;
+    color: #64748b;
+    font-weight: 500;
+    margin-top: 0.15rem;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
 }
 
 /* ── Answer card ────────────────────────────────────────────── */
 .answer-card {
     background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);
     border: 1.5px solid #34d399;
-    border-radius: 12px;
-    padding: 1.2rem 1.5rem;
+    border-radius: 14px;
+    padding: 1.3rem 1.5rem;
     margin: 0.75rem 0 1rem;
-    box-shadow: 0 2px 12px rgba(52, 211, 153, 0.12);
+    box-shadow: 0 4px 16px rgba(52, 211, 153, 0.12);
+    animation: fadeInUp 0.4s ease-out;
 }
 .answer-card .answer-label {
-    font-size: 0.7rem;
-    font-weight: 600;
+    font-size: 0.68rem;
+    font-weight: 700;
     color: #059669;
     text-transform: uppercase;
     letter-spacing: 1px;
@@ -120,21 +387,22 @@ html, body, [class*="css"] {
     font-size: 1.15rem;
     font-weight: 600;
     color: #064e3b;
-    line-height: 1.5;
+    line-height: 1.55;
 }
 
 /* ── Warning answer card ────────────────────────────────────── */
 .answer-card-warn {
     background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
     border: 1.5px solid #f59e0b;
-    border-radius: 12px;
-    padding: 1.2rem 1.5rem;
+    border-radius: 14px;
+    padding: 1.3rem 1.5rem;
     margin: 0.75rem 0 1rem;
-    box-shadow: 0 2px 12px rgba(245,158,11,0.1);
+    box-shadow: 0 4px 16px rgba(245,158,11,0.1);
+    animation: fadeInUp 0.4s ease-out;
 }
 .answer-card-warn .answer-label {
-    font-size: 0.7rem;
-    font-weight: 600;
+    font-size: 0.68rem;
+    font-weight: 700;
     color: #d97706;
     text-transform: uppercase;
     letter-spacing: 1px;
@@ -144,7 +412,7 @@ html, body, [class*="css"] {
     font-size: 1.15rem;
     font-weight: 600;
     color: #78350f;
-    line-height: 1.5;
+    line-height: 1.55;
 }
 
 /* ── Insights strip ─────────────────────────────────────────── */
@@ -163,6 +431,11 @@ html, body, [class*="css"] {
     font-weight: 500;
     line-height: 1.4;
     box-shadow: 0 2px 8px rgba(30,58,95,0.2);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.insight-chip:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(30,58,95,0.3);
 }
 
 /* ── Confidence bar ─────────────────────────────────────────── */
@@ -190,11 +463,13 @@ html, body, [class*="css"] {
     height: 100%;
     border-radius: 99px;
     background: linear-gradient(90deg, #34d399, #10b981);
+    transition: width 0.6s ease-out;
 }
 .conf-bar-fill-low {
     height: 100%;
     border-radius: 99px;
     background: linear-gradient(90deg, #fbbf24, #f59e0b);
+    transition: width 0.6s ease-out;
 }
 .conf-pct {
     font-size: 0.82rem;
@@ -221,10 +496,12 @@ html, body, [class*="css"] {
     font-size: 0.76rem;
     color: #374151;
     font-weight: 500;
+    transition: all 0.2s ease;
 }
 .pipeline-step.done {
-    background: #dcfce7;
+    background: linear-gradient(135deg, #dcfce7, #d1fae5);
     color: #166534;
+    border: 1px solid rgba(34, 197, 94, 0.2);
 }
 .pipeline-arrow {
     color: #9ca3af;
@@ -243,11 +520,16 @@ html, body, [class*="css"] {
 
 /* ── Metric tiles ───────────────────────────────────────────── */
 .metric-tile {
-    background: #f9fafb;
+    background: linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%);
     border: 1px solid #e5e7eb;
-    border-radius: 10px;
-    padding: 0.8rem 1rem;
+    border-radius: 12px;
+    padding: 0.9rem 1rem;
     text-align: center;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.metric-tile:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.06);
 }
 .metric-tile .mt-val {
     font-size: 1.6rem;
@@ -265,7 +547,7 @@ html, body, [class*="css"] {
 .clarify-box {
     background: #eff6ff;
     border: 1px solid #bfdbfe;
-    border-radius: 10px;
+    border-radius: 12px;
     padding: 0.75rem 1rem;
     margin: 0.5rem 0;
     font-size: 0.9rem;
@@ -276,7 +558,7 @@ html, body, [class*="css"] {
 .approx-banner {
     background: #fff7ed;
     border: 1px solid #fed7aa;
-    border-radius: 10px;
+    border-radius: 12px;
     padding: 0.6rem 1rem;
     font-size: 0.85rem;
     color: #c2410c;
@@ -294,14 +576,79 @@ section[data-testid="stSidebar"] .stButton > button {
     background: rgba(255,255,255,0.08) !important;
     border: 1px solid rgba(255,255,255,0.15) !important;
     color: #f1f5f9 !important;
-    border-radius: 8px !important;
+    border-radius: 10px !important;
     font-weight: 500 !important;
+    transition: all 0.2s ease !important;
 }
 section[data-testid="stSidebar"] .stButton > button:hover {
     background: rgba(255,255,255,0.14) !important;
+    border-color: rgba(255,255,255,0.25) !important;
+    transform: translateY(-1px) !important;
 }
 section[data-testid="stSidebar"] hr {
-    border-color: rgba(255,255,255,0.1) !important;
+    border-color: rgba(255,255,255,0.08) !important;
+}
+
+/* ── Sidebar status badges ──────────────────────────────────── */
+.sidebar-status-ok {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    background: rgba(52,211,153,0.12);
+    border: 1px solid rgba(52,211,153,0.3);
+    border-radius: 10px;
+    font-size: 0.84rem;
+    color: #6ee7b7;
+}
+.sidebar-status-err {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    background: rgba(239,68,68,0.1);
+    border: 1px solid rgba(239,68,68,0.25);
+    border-radius: 10px;
+    font-size: 0.84rem;
+    color: #fca5a5;
+}
+.pulse-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #34d399;
+    animation: pulse 2s ease-in-out infinite;
+    box-shadow: 0 0 6px rgba(52,211,153,0.5);
+}
+.pulse-dot-err {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #ef4444;
+    animation: pulse 2s ease-in-out infinite;
+    box-shadow: 0 0 6px rgba(239,68,68,0.5);
+}
+
+/* ── Sidebar version badge ──────────────────────────────────── */
+.version-badge {
+    text-align: center;
+    padding: 0.6rem;
+    margin-top: 0.5rem;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 10px;
+}
+.version-badge .vb-name {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #94a3b8;
+}
+.version-badge .vb-ver {
+    font-size: 0.65rem;
+    color: #64748b;
+    margin-top: 0.1rem;
 }
 
 /* ── Example question buttons ───────────────────────────────── */
@@ -309,12 +656,12 @@ div[data-testid="column"] .stButton > button {
     background: #f8fafc !important;
     border: 1.5px solid #e2e8f0 !important;
     color: #1e3a5f !important;
-    border-radius: 10px !important;
+    border-radius: 12px !important;
     font-size: 0.88rem !important;
     font-weight: 500 !important;
     text-align: left !important;
     padding: 0.7rem 1rem !important;
-    transition: all 0.15s ease !important;
+    transition: all 0.2s ease !important;
     line-height: 1.4 !important;
     white-space: normal !important;
     height: auto !important;
@@ -323,7 +670,8 @@ div[data-testid="column"] .stButton > button:hover {
     background: #eff6ff !important;
     border-color: #3b82f6 !important;
     color: #1d4ed8 !important;
-    box-shadow: 0 2px 8px rgba(59,130,246,0.15) !important;
+    box-shadow: 0 4px 12px rgba(59,130,246,0.15) !important;
+    transform: translateY(-2px) !important;
 }
 
 /* ── Expander ───────────────────────────────────────────────── */
@@ -334,12 +682,12 @@ details summary {
 
 /* ── Chat messages ──────────────────────────────────────────── */
 [data-testid="stChatMessage"] {
-    border-radius: 12px !important;
+    border-radius: 14px !important;
 }
 
 /* ── Tables ─────────────────────────────────────────────────── */
 [data-testid="stDataFrame"] {
-    border-radius: 8px;
+    border-radius: 10px;
     overflow: hidden;
     border: 1px solid #e5e7eb;
 }
@@ -348,6 +696,14 @@ details summary {
 button[data-baseweb="tab"][aria-selected="true"] {
     color: #0f6b8a !important;
     border-bottom-color: #0f6b8a !important;
+}
+
+/* ── Gradient divider ───────────────────────────────────────── */
+.gradient-divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(14,107,138,0.15), transparent);
+    border: none;
+    margin: 1.5rem 0;
 }
 </style>
 """
@@ -526,8 +882,8 @@ def _render_sidebar() -> None:
         st.markdown(
             """
             <div style="padding:1.2rem 0.5rem 0.8rem; text-align:center;">
-                <div style="font-size:1.8rem;">🤖</div>
-                <div style="font-size:1.1rem; font-weight:700; color:#f1f5f9; margin-top:0.3rem;">IADS SQL Agent</div>
+                <div style="font-size:2rem;">🤖</div>
+                <div style="font-size:1.15rem; font-weight:700; color:#f1f5f9; margin-top:0.3rem;">IADS SQL Agent</div>
                 <div style="font-size:0.75rem; color:#94a3b8; margin-top:0.2rem;">AI-powered data querying</div>
             </div>
             """,
@@ -549,7 +905,7 @@ def _render_sidebar() -> None:
 
         if db_connected:
             st.markdown(
-                '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem 0.75rem;background:rgba(52,211,153,0.12);border:1px solid rgba(52,211,153,0.3);border-radius:8px;font-size:0.84rem;color:#6ee7b7;">🟢&nbsp;<b>Connected</b>&nbsp;— OCI Autonomous DB</div>',
+                '<div class="sidebar-status-ok"><span class="pulse-dot"></span>&nbsp;<b>Connected</b>&nbsp;— OCI Autonomous DB</div>',
                 unsafe_allow_html=True,
             )
             if tables:
@@ -558,7 +914,7 @@ def _render_sidebar() -> None:
                     st.markdown(f'<div style="font-size:0.82rem;color:#cbd5e1;padding:2px 0;">`{t}`</div>', unsafe_allow_html=True)
         else:
             st.markdown(
-                '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem 0.75rem;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);border-radius:8px;font-size:0.84rem;color:#fca5a5;">🔴&nbsp;<b>Not connected</b></div>',
+                '<div class="sidebar-status-err"><span class="pulse-dot-err"></span>&nbsp;<b>Not connected</b></div>',
                 unsafe_allow_html=True,
             )
             st.caption("Waiting for OCI connection…")
@@ -607,9 +963,10 @@ def _render_sidebar() -> None:
             ("⚡", "Execution"),
             ("💡", "Summarisation"),
         ]
-        for icon, label in pipeline_stages:
+        for i, (icon, label) in enumerate(pipeline_stages):
+            connector = '<div style="margin-left:0.6rem;border-left:2px solid rgba(255,255,255,0.08);height:6px;"></div>' if i > 0 else ''
             st.markdown(
-                f'<div style="display:flex;align-items:center;gap:0.5rem;padding:3px 0;font-size:0.8rem;color:#cbd5e1;">{icon}&nbsp;{label}</div>',
+                f'{connector}<div style="display:flex;align-items:center;gap:0.5rem;padding:3px 0;font-size:0.8rem;color:#cbd5e1;">{icon}&nbsp;{label}</div>',
                 unsafe_allow_html=True,
             )
 
@@ -620,6 +977,102 @@ def _render_sidebar() -> None:
             st.session_state.history = []
             st.session_state.session_id = None
             st.rerun()
+
+        # --- Version badge ---
+        st.markdown(
+            """
+            <div class="version-badge">
+                <div class="vb-name">IADS SQL Agent</div>
+                <div class="vb-ver">v1.0.0 · Oracle 23ai</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+# ---------------------------------------------------------------------------
+# Data summary helper
+# ---------------------------------------------------------------------------
+
+def _generate_data_summary(df: pd.DataFrame) -> str:
+    """Generate an HTML data summary card for query results."""
+    if df.empty:
+        return ""
+
+    numeric_cols = df.select_dtypes(include="number").columns.tolist()
+    categorical_cols = [c for c in df.columns if c not in numeric_cols]
+
+    stats_html = ""
+
+    # Row count
+    stats_html += f"""
+        <div class="ds-stat">
+            <div class="ds-val">{len(df):,}</div>
+            <div class="ds-lbl">Rows</div>
+        </div>
+    """
+
+    # For numeric columns (max 3), show the total
+    for col in numeric_cols[:3]:
+        total = df[col].sum()
+        if abs(total) >= 1_000_000:
+            formatted = f"{total / 1_000_000:,.1f}M"
+        elif abs(total) >= 1_000:
+            formatted = f"{total / 1_000:,.1f}K"
+        elif total == int(total):
+            formatted = f"{int(total):,}"
+        else:
+            formatted = f"{total:,.2f}"
+
+        # Clean the column name for display
+        display_name = col.replace("_", " ").title()
+        stats_html += f"""
+            <div class="ds-stat">
+                <div class="ds-val">{formatted}</div>
+                <div class="ds-lbl">Σ {display_name}</div>
+            </div>
+        """
+
+    # Top category (the row with the highest numeric value)
+    if categorical_cols and numeric_cols and len(df) > 1:
+        top_cat_col = categorical_cols[0]
+        try:
+            top_idx = df[numeric_cols[0]].idxmax()
+            top_val = str(df.iloc[top_idx][top_cat_col])
+            if len(top_val) > 18:
+                top_val = top_val[:16] + "…"
+            display_cat = top_cat_col.replace("_", " ").title()
+            stats_html += f"""
+                <div class="ds-stat">
+                    <div class="ds-val" style="font-size:0.95rem;">{top_val}</div>
+                    <div class="ds-lbl">🏆 Top {display_cat}</div>
+                </div>
+            """
+        except Exception:  # noqa: BLE001
+            pass
+
+    # Min/Max range for first numeric column
+    if numeric_cols and len(df) > 1:
+        col = numeric_cols[0]
+        mn, mx = df[col].min(), df[col].max()
+        if abs(mx) >= 1_000_000:
+            mn_fmt, mx_fmt = f"{mn/1_000_000:.1f}M", f"{mx/1_000_000:.1f}M"
+        elif abs(mx) >= 1_000:
+            mn_fmt, mx_fmt = f"{mn/1_000:.1f}K", f"{mx/1_000:.1f}K"
+        else:
+            mn_fmt, mx_fmt = f"{mn:,.0f}", f"{mx:,.0f}"
+        stats_html += f"""
+            <div class="ds-stat">
+                <div class="ds-val" style="font-size:0.95rem;">{mn_fmt} – {mx_fmt}</div>
+                <div class="ds-lbl">Range</div>
+            </div>
+        """
+
+    return f"""
+        <div class="data-summary-card">
+            <div class="ds-title">📊 Data Summary</div>
+            <div class="data-summary-stats">{stats_html}</div>
+        </div>
+    """
 
 # ---------------------------------------------------------------------------
 # Response renderer
@@ -699,6 +1152,14 @@ def _render_response(resp: dict) -> None:
     # -- Pipeline breadcrumb --
     st.markdown(_pipeline_badges(resp), unsafe_allow_html=True)
 
+    # -- Data summary card (auto-generated) --
+    rows = resp.get("rows", [])
+    if rows:
+        df_for_summary = pd.DataFrame(rows)
+        summary_html = _generate_data_summary(df_for_summary)
+        if summary_html:
+            st.markdown(summary_html, unsafe_allow_html=True)
+
     # -- Insights chips --
     insights = resp.get("insights") or []
     if insights:
@@ -707,7 +1168,6 @@ def _render_response(resp: dict) -> None:
         st.markdown(f'<div class="insights-strip">{chips}</div>', unsafe_allow_html=True)
 
     # -- Data tabs --
-    rows = resp.get("rows", [])
     if rows:
         df = pd.DataFrame(rows)
         tab1, tab2, tab3 = st.tabs(["📊 Visualization", "📋 Data", "📥 Export"])
@@ -783,6 +1243,7 @@ def main() -> None:
 
     # Welcome screen — shown only when there is no history yet
     if not st.session_state.history:
+        # ─── Animated header ───
         st.markdown(
             """
             <div class="iads-header">
@@ -794,6 +1255,115 @@ def main() -> None:
             unsafe_allow_html=True,
         )
 
+        # ─── Summary stats cards ───
+        try:
+            health_resp = httpx.get(f"{API_URL}/health", timeout=3)
+            health_data = health_resp.json()
+            db_ok = health_data.get("database") == "connected"
+        except Exception:
+            db_ok = False
+
+        db_status = "Connected" if db_ok else "Offline"
+        db_dot_class = "pulse-dot" if db_ok else "pulse-dot-err"
+        table_count = str(len(st.session_state.db_tables)) if st.session_state.db_tables else "—"
+
+        st.markdown(
+            f"""
+            <div class="summary-grid">
+                <div class="summary-card">
+                    <div class="card-icon">🗄️</div>
+                    <div class="card-value"><span class="{db_dot_class}"></span>&nbsp;{db_status}</div>
+                    <div class="card-label">Database</div>
+                </div>
+                <div class="summary-card">
+                    <div class="card-icon">📊</div>
+                    <div class="card-value">{table_count}</div>
+                    <div class="card-label">Tables Available</div>
+                </div>
+                <div class="summary-card">
+                    <div class="card-icon">🤖</div>
+                    <div class="card-value">5-Stage</div>
+                    <div class="card-label">Agentic Pipeline</div>
+                </div>
+                <div class="summary-card">
+                    <div class="card-icon">⚡</div>
+                    <div class="card-value">Oracle 23ai</div>
+                    <div class="card-label">Query Engine</div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        # ─── How It Works ───
+        st.markdown(
+            """
+            <div class="how-section">
+                <div class="how-section-title">How It Works</div>
+                <div class="how-steps">
+                    <div class="how-step">
+                        <div class="step-num">1</div>
+                        <div class="step-title">Ask</div>
+                        <div class="step-desc">Type your question in natural language — no SQL knowledge needed</div>
+                    </div>
+                    <div class="how-step">
+                        <div class="step-num">2</div>
+                        <div class="step-title">Process</div>
+                        <div class="step-desc">AI retrieves context via RAG, generates &amp; validates SQL automatically</div>
+                    </div>
+                    <div class="how-step">
+                        <div class="step-num">3</div>
+                        <div class="step-title">Visualize</div>
+                        <div class="step-desc">Get answers, interactive charts, and data exports instantly</div>
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        # ─── Feature highlights ───
+        st.markdown(
+            """
+            <div class="how-section-title" style="margin-top:0.5rem;">Capabilities</div>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feat-icon">🧠</div>
+                    <div>
+                        <div class="feat-title">Natural Language to SQL</div>
+                        <div class="feat-desc">Ask questions in plain English and get accurate SQL queries generated automatically</div>
+                    </div>
+                </div>
+                <div class="feature-card">
+                    <div class="feat-icon">📚</div>
+                    <div>
+                        <div class="feat-title">RAG-Enhanced Accuracy</div>
+                        <div class="feat-desc">Retrieval-augmented generation grounds responses in your actual schema &amp; data</div>
+                    </div>
+                </div>
+                <div class="feature-card">
+                    <div class="feat-icon">📊</div>
+                    <div>
+                        <div class="feat-title">Auto Visualizations</div>
+                        <div class="feat-desc">Charts are automatically generated based on query results — bar, line, pie &amp; more</div>
+                    </div>
+                </div>
+                <div class="feature-card">
+                    <div class="feat-icon">🔒</div>
+                    <div>
+                        <div class="feat-title">SQL Validation &amp; Safety</div>
+                        <div class="feat-desc">All generated SQL is validated and run as read-only to protect your data</div>
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        # ─── Gradient divider ───
+        st.markdown('<div class="gradient-divider"></div>', unsafe_allow_html=True)
+
+        # ─── Example questions ───
         st.markdown('<div class="section-title" style="margin-bottom:0.6rem;">Try an example question</div>', unsafe_allow_html=True)
         examples = [
             "💰 What is the total revenue by region?",

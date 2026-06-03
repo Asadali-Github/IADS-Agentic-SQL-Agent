@@ -40,6 +40,10 @@ def _pipeline_query(question: str, session_id: str) -> QueryResponse:
     r = _pipeline_answer(question, session_id)  # type: ignore[misc]
     return QueryResponse(
         answer=r.get("answer", ""),
+        resolved_question=r.get("resolved_question", question),
+        important_numbers=r.get("important_numbers", []),
+        trends_anomalies=r.get("trends_anomalies", []),
+        final_takeaway=r.get("final_takeaway"),
         rows=r.get("rows", []),
         sql=r.get("sql", ""),
         explanation=r.get("explanation", ""),

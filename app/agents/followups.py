@@ -38,6 +38,9 @@ import re
 # used to (a) decide whether a question is self-contained and (b) swap terms
 # when rewriting a follow-up. Order matters: longer phrases first so e.g.
 # "sub category" wins over "category".
+import json
+from typing import Any, Callable
+
 MEASURE_WORDS: tuple[str, ...] = (
     "revenue",
     "sales",
@@ -102,11 +105,12 @@ TRIGGER_PREFIXES: tuple[str, ...] = (
     "drill ",
     "by ",
     "for ",
+    "with ",
 )
 
 # Whole-word markers that, anywhere in a short question, signal continuation.
 FOLLOW_UP_MARKERS: frozenset[str] = frozenset(
-    {"instead", "also", "same", "compare", "again", "those", "that"}
+    {"instead", "also", "same", "compare", "again", "those", "that", "it", "them", "earlier", "previous", "prior"}
 )
 
 
@@ -154,12 +158,13 @@ def looks_like_follow_up(question: str) -> bool:
     words = normalized.split()
     has_measure = _has_measure(normalized)
     has_dimension = _has_dimension(normalized)
+    has_year = re.search(r"\b(19|20)\d{2}\b", normalized) is not None
     starts_trigger = _starts_with_trigger(normalized)
     has_marker = bool(FOLLOW_UP_MARKERS & set(words))
 
     # 1) Fully self-contained question -> NOT a follow-up. This is the key guard
     #    that stops standalone questions from being merged with the prior turn.
-    if has_measure and has_dimension and not starts_trigger and not has_marker:
+    if (has_measure and (has_dimension or has_year)) and not starts_trigger and not has_marker:
         return False
 
     # 2) Explicit continuation signal ("what about ...", "and by ...", "also").
@@ -167,9 +172,8 @@ def looks_like_follow_up(question: str) -> bool:
         return True
 
     # 3) Bare elliptical fragment: very short and supplying only one of
-    #    measure/dimension (e.g. "profit?", "by region"). Longer fragments are
-    #    treated as standalone and queried fresh.
-    if len(words) <= 3 and (has_measure != has_dimension):
+    #    measure/dimension/year. Longer fragments are treated as standalone and queried fresh.
+    if len(words) <= 3 and (has_measure or has_dimension or has_year):
         return True
 
     return False
@@ -196,8 +200,10 @@ def rewrite_follow_up(question: str, previous_question: str) -> str | None:
     normalized = _normalize(question)
     new_measure = _first_match(_MEASURE_RE, normalized)
     new_dimension = _first_match(_DIMENSION_RE, normalized)
+    year_match = re.search(r"\b(19|20)\d{2}\b", normalized)
+    new_year = year_match.group(0) if year_match else None
 
-    if not new_measure and not new_dimension:
+    if not new_measure and not new_dimension and not new_year:
         return None
 
     rewritten = previous_question
@@ -221,11 +227,92 @@ def rewrite_follow_up(question: str, previous_question: str) -> str | None:
             rewritten = re.sub(r"\s*\?+\s*$", "", rewritten).rstrip()
             rewritten = f"{rewritten} by {new_dimension}"
 
+    # Swap or append the year term
+    if new_year:
+        year_re = re.compile(r"\b(19|20)\d{2}\b")
+        if year_re.search(rewritten):
+            rewritten = year_re.sub(new_year, rewritten, count=1)
+        else:
+            rewritten = re.sub(r"\s*\?+\s*$", "", rewritten).rstrip()
+            rewritten = f"{rewritten} in {new_year}"
+
     rewritten = re.sub(r"\s+", " ", rewritten).strip()
     if rewritten.lower() == previous_question.lower():
         # Nothing actually changed; let the caller fall back to the raw question.
         return None
     return rewritten
+
+
+def classify_and_rewrite_live(
+    question: str,
+    previous_question: str,
+    profile_name: str | None,
+    connection_factory: Callable[[], Any],
+) -> tuple[bool, str]:
+    """Use Oracle Select AI to classify if a question is a follow-up and rewrite it.
+
+    Returns (is_related, resolved_question).
+    """
+    if not profile_name or not previous_question:
+        is_rel = looks_like_follow_up(question)
+        if is_rel:
+            return True, rewrite_follow_up(question, previous_question) or question
+        return False, question
+
+    prompt = f"""
+Previous question: "{previous_question}"
+New question: "{question}"
+
+Task: Determine if the new question is a follow-up or related to the previous question, or if it is a completely new/unrelated query.
+
+Classification Rules:
+1. If the new question is related (e.g., elliptical phrases like "what about profit?", "and by region?", "compare with 2024", "instead of category", "show that", "previous result"), classify as "related".
+2. If the new question is a completely new query (e.g., "what are total sales by product category?", "how many customers do we have?"), classify as "unrelated".
+
+If it is "related", rewrite it into a single standalone natural-language question combining the previous context and the new parameters. Do not generate SQL.
+
+Respond strictly in this JSON format (do not return any other text or explanation):
+{{
+  "is_related": true or false,
+  "rewritten": "the rewritten standalone question, or null if is_related is false"
+}}
+JSON:
+"""
+    try:
+        with connection_factory() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT DBMS_CLOUD_AI.GENERATE(
+                        prompt       => :prompt,
+                        profile_name => :profile_name,
+                        action       => 'narrate'
+                    ) FROM dual
+                    """,
+                    {
+                        "prompt": prompt,
+                        "profile_name": profile_name,
+                    },
+                )
+                row = cursor.fetchone()
+                if row and row[0] is not None:
+                    response_text = str(row[0]).strip()
+                    # Extract JSON block
+                    match = re.search(r"\{.*\}", response_text, re.S)
+                    if match:
+                        data = json.loads(match.group())
+                        is_related = bool(data.get("is_related", False))
+                        rewritten = data.get("rewritten")
+                        if is_related and rewritten:
+                            return True, str(rewritten).strip()
+    except Exception:  # noqa: BLE001
+        pass
+
+    # Fall back to rules
+    is_rel = looks_like_follow_up(question)
+    if is_rel:
+        return True, rewrite_follow_up(question, previous_question) or question
+    return False, question
 
 
 def resolve(question: str, previous_question: str | None) -> str:

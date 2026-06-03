@@ -104,7 +104,11 @@ class ProductionPipeline:
         confidence = 0.9 if status == "success" else (0.6 if approximate else 0.3)
         return {
             "question": question,
+            "resolved_question": r.get("resolved_question", question),
             "answer": ans.get("answer", ""),
+            "important_numbers": ans.get("important_numbers", []),
+            "trends_anomalies": ans.get("trends_anomalies", []),
+            "final_takeaway": ans.get("final_takeaway"),
             "rows": rows,
             "columns": columns,
             "sql": sql,

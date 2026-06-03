@@ -228,6 +228,16 @@ class FullPipeline:
         q = question.strip()
         if not session_id:            # no multi-turn without an explicit session
             return q
+            
+        from app.agents.followups import looks_like_follow_up, resolve_follow_up
+        
+        is_rel = looks_like_follow_up(q)
+        if not is_rel:
+            # Unrelated new question: reset conversational context
+            if session_id in self._history:
+                self._history[session_id] = []
+            return q
+            
         prior = self._history.get(session_id)
         if not prior:
             return q
@@ -290,7 +300,11 @@ class FullPipeline:
         rows_as_dicts = [dict(zip(execution.columns, r)) for r in execution.rows]
         return {
             "question": question,
+            "resolved_question": resolved,
             "answer": summary.answer,
+            "important_numbers": summary.important_numbers,
+            "trends_anomalies": summary.trends_anomalies,
+            "final_takeaway": summary.final_takeaway,
             "rows": rows_as_dicts,
             "columns": execution.columns,
             "sql": sql,
