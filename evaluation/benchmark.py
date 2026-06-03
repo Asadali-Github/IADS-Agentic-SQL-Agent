@@ -131,6 +131,7 @@ def run_benchmark(
     agent_fn: AgentFn,
     golden: Optional[list[GoldenQuery]] = None,
     golden_path: Path | str = DEFAULT_GOLDEN_PATH,
+    mode: str = "unknown",
 ) -> BenchmarkResult:
     """Execute the agent over the golden set and return a scored BenchmarkResult."""
     if golden is None:
@@ -151,6 +152,7 @@ def run_benchmark(
     return BenchmarkResult(
         run_id=run_id,
         git_sha=_git_sha(),
+        mode=mode,
         n_questions=len(cases),
         n_passed=n_passed,
         n_failed=len(cases) - n_passed,
@@ -175,7 +177,7 @@ def format_report(result: BenchmarkResult) -> str:
     """Render a compact pass/fail report as a string."""
     lines: list[str] = []
     lines.append("=" * 64)
-    lines.append(f"BENCHMARK RUN {result.run_id}  (git {result.git_sha or 'n/a'})")
+    lines.append(f"BENCHMARK RUN {result.run_id}  (git {result.git_sha or 'n/a'}, mode={result.mode})")
     lines.append("=" * 64)
     for m in result.metrics:
         val = f"{m.value:.4f}" if m.unit == "ratio" else f"{m.value:g}"
@@ -192,6 +194,9 @@ def format_report(result: BenchmarkResult) -> str:
         extra = f"  partial={c.partial_match:.2f}" if not c.passed else ""
         err = f"  ERR: {c.error}" if c.error else ""
         lines.append(f"  [{flag}] {c.question_id:<6} {tier:<6}{extra}{err}")
+    if result.mode in ("offline_cache", "stub", "mock"):
+        lines.append(f"  NOTE: mode='{result.mode}' validates the execution+scoring path,")
+        lines.append("        NOT live generation accuracy. Run with OCI for the headline number.")
     lines.append("=" * 64)
     return "\n".join(lines)
 

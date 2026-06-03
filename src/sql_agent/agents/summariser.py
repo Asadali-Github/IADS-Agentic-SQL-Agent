@@ -233,6 +233,15 @@ def _humanize_money(v: float) -> str:
     return f"${v:,.2f}"
 
 
+def _plural(word: str) -> str:
+    w = str(word)
+    if w.endswith("y") and len(w) > 1 and w[-2] not in "aeiou":
+        return w[:-1] + "ies"
+    if w.endswith(("s", "x", "z", "ch", "sh")):
+        return w + "es"
+    return w + "s"
+
+
 def _fmt(colname: str, v) -> str:
     if not isinstance(v, (int, float)) or isinstance(v, bool):
         return str(v)
@@ -505,10 +514,20 @@ class Summariser:
         if not rows:
             return "No matching records were found for this question."
         if len(rows) == 1 and len(rows[0]) == 1:
-            return f"The result is {rows[0][0]}."
+            return f"The result is {_fmt(columns[0] if columns else '', rows[0][0])}."
         if len(rows) == 1:
-            pairs = ", ".join(f"{c}: {v}" for c, v in zip(columns, rows[0]))
+            pairs = ", ".join(f"{c}: {_fmt(c, v)}" for c, v in zip(columns, rows[0]))
             return f"The query returned a single record - {pairs}."
+        # Multi-row: name the leading row on its measure - a real answer, not a count.
+        dim_idx, measure_idx, _ = _column_roles(columns, rows)
+        if dim_idx is not None and measure_idx is not None:
+            try:
+                top = max(rows, key=lambda r: r[measure_idx])
+                dname, mname = columns[dim_idx], columns[measure_idx]
+                return (f"{top[dim_idx]} had the highest {mname} "
+                        f"({_fmt(mname, top[measure_idx])}), across {len(rows)} {_plural(dname)}.")
+            except Exception:  # noqa: BLE001
+                pass
         return f"The query returned {len(rows)} records matching the question."
 
     @staticmethod

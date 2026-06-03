@@ -1,4 +1,4 @@
-.PHONY: help install dev test lint format typecheck run-api run-ui benchmark preprocess synth-queries demo-summariser stress-summariser seed-db refresh-schema-descriptions embed-schema docker-build docker-up docker-down clean
+.PHONY: help install dev test lint format typecheck run-api run-ui benchmark preprocess synth-queries demo-summariser stress-summariser demo-pipeline seed-db refresh-schema-descriptions embed-schema docker-build docker-up docker-down clean
 
 help:  ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
@@ -42,6 +42,9 @@ demo-summariser:  ## Run the Summariser over mock inputs (no DB needed)
 
 stress-summariser:  ## Adversarial edge-case stress test for the Summariser
 	python scripts/stress_summariser.py
+
+demo-pipeline:  ## Run the full question->answer pipeline end-to-end (offline)
+	python scripts/demo_pipeline.py
 
 seed-db:  ## Apply db/ddl + load db/seed into the Autonomous DB
 	python scripts/seed_database.py

@@ -43,6 +43,8 @@ COPY = {
     "confidence_warn": "Low confidence — double-check before acting on this.",
     "approx_match": "No exact match found. Showing the closest results instead.",
     "expander_label": "How did the AI calculate this?",
+    "insights_label": "Key insights",
+    "clarify_label": "I need a quick clarification",
     "tables_used_label": "Tables used",
     "explanation_label": "Plain-English breakdown",
     "sql_label": "Generated SQL",
@@ -97,6 +99,23 @@ def call_api(question: str, session_id: str | None) -> dict:
 # ---------------------------------------------------------------------------
 # Chart auto-detection
 # ---------------------------------------------------------------------------
+
+def _render_chart_from_spec(spec: dict | None, df: pd.DataFrame) -> None:
+    """Render the summariser's recommended chart; fall back to auto-detection."""
+    if df.empty:
+        return
+    if spec and spec.get("type") and spec["type"] != "none":
+        x, y, ctype = spec.get("x"), spec.get("y"), spec["type"]
+        try:
+            if x in df.columns and y in df.columns:
+                if ctype == "line":
+                    st.line_chart(df.set_index(x)[y]); return
+                # Streamlit has no native pie; a bar reads the same comparison.
+                st.bar_chart(df.set_index(x)[y]); return
+        except Exception:  # noqa: BLE001
+            pass
+    _detect_and_render_chart(df)
+
 
 def _detect_and_render_chart(df: pd.DataFrame) -> None:
     if df.empty:
@@ -219,13 +238,23 @@ def _render_response(resp: dict) -> None:
     else:
         st.warning(f"⚠ {COPY['confidence_warn']} ({confidence:.0%})")
 
+    if resp.get("clarification"):
+        st.info(f"💡 {resp['clarification']}")
+
     if resp.get("answer"):
         st.markdown(f"### {resp['answer']}")
+
+    # Business insights (deterministic, from the summariser)
+    insights = resp.get("insights") or []
+    if insights:
+        st.markdown(f"**{COPY['insights_label']}**")
+        for ins in insights:
+            st.markdown(f"- 📊 {ins}")
 
     rows = resp.get("rows", [])
     if rows:
         df = pd.DataFrame(rows)
-        _detect_and_render_chart(df)
+        _render_chart_from_spec(resp.get("chart"), df)
         st.dataframe(df, use_container_width=True)
 
     with st.expander(COPY["expander_label"]):
@@ -267,10 +296,10 @@ def main() -> None:
             unsafe_allow_html=True,
         )
         examples = [
-            "What were total UK sales last quarter, broken down by category?",
-            "Show me the top 5 customers by revenue this year.",
-            "Which products had a return rate above 10% in 2025?",
-            "Compare monthly order volumes between 2024 and 2025.",
+            "What is the total revenue by region?",
+            "What are the top 5 products by total revenue?",
+            "What is the profit margin percentage by region?",
+            "What was the monthly revenue in 2024?",
         ]
         cols = st.columns(2)
         for i, ex in enumerate(examples):

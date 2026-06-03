@@ -185,6 +185,7 @@ class BenchmarkResult(BaseModel):
     run_id: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     git_sha: Optional[str] = None
+    mode: str = Field("unknown", description="How the agent ran: live_oci | offline_cache | stub | mock.")
     n_questions: int = 0
     n_passed: int = 0
     n_failed: int = 0

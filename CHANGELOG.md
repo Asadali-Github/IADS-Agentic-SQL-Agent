@@ -74,6 +74,22 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
 - Tests: 88 unit tests across metrics, benchmark, summariser (incl. adversarial),
   pii_filter, token_counter, glossary, ner_presidio.
 
+#### End-to-end integration (Asad, integrator pass)
+
+- **`app/pipeline.py`** (new): composes the whole flow — glossary enrich -> RAG
+  retrieve -> SQL (live OCI / curated offline) -> read-only validate -> execute
+  -> summarise -> QueryResponse-shaped result. Connects the `app/` runtime and the
+  `src/sql_agent/` library without rewriting either.
+- **`evaluation/local_db.py`** (new): offline read-only DuckDB executor over
+  `db/seed/product_sales.csv` (Oracle-SQL in, transpiled) — fills the missing
+  execution stage so the pipeline runs without OCI.
+- Wired the FastAPI `/query` endpoint to the pipeline (stub kept as a defensive
+  fallback) and `scripts/run_benchmark.py` `_real_agent` to drive the pipeline.
+- `scripts/demo_pipeline.py` (+ `make demo-pipeline`): runnable end-to-end demo on
+  the real data, offline. Improved the deterministic answer to name the leading
+  result ("East had the highest revenue ($45.0M)...").
+- `docs/PROJECT_REVIEW.md`: full architecture + status + how-to-run review.
+
 #### Answer enrichment (Asad) — "explain, insight, chart, ask"
 
 - `AnswerSummary` extended (additive) with `insights`, `chart` (`ChartSpec`),

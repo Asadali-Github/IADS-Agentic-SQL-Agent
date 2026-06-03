@@ -37,25 +37,27 @@ from evaluation.benchmark import (  # noqa: E402
 
 
 def _real_agent():
-    """Adapter from the orchestrator to the harness's AgentFn.
+    """Adapter from the end-to-end pipeline to the harness's AgentFn.
 
-    TODO (when Hasan's pipeline is importable): build an agent_fn that calls the
-    orchestrator and maps its output into AgentRunOutput(sql, rows, retries,
-    latency_ms, token_cost_usd, tables_used).
+    Runs app.pipeline (RAG -> SQL -> execute -> summarise) per question and maps
+    the result rows onto AgentRunOutput so the harness can score them. Works
+    offline (LocalDB over the seed) and against live OCI/Oracle when configured.
     """
     from evaluation.benchmark import AgentRunOutput
-    from sql_agent.agents.orchestrator import answer_question  # type: ignore
+    from app.pipeline import answer_question
 
     def _agent(query):
-        result = answer_question(query.text)
+        r = answer_question(query.text)
+        # rows come back as list[dict]; convert to ordered rows by the SQL columns.
+        cols = r.get("columns") or (list(r["rows"][0].keys()) if r.get("rows") else [])
+        rows = [[row.get(c) for c in cols] for row in r.get("rows", [])]
         return AgentRunOutput(
-            sql=getattr(result, "sql", ""),
-            rows=getattr(result, "rows", []),
-            tables_used=getattr(result, "tables_used", []),
-            retries=getattr(result, "retries", 0),
-            latency_ms=getattr(result, "latency_ms", None),
-            token_cost_usd=getattr(result, "token_cost_usd", None),
-            error=getattr(result, "error", None),
+            sql=r.get("sql", ""),
+            columns=cols,
+            rows=rows,
+            tables_used=r.get("tables_used", []),
+            latency_ms=r.get("latency_ms"),
+            error=r.get("error"),
         )
 
     return _agent
@@ -82,13 +84,15 @@ def main() -> int:
         print(f"[run_benchmark] Golden set {args.golden} is empty - add questions first.")
         return 0
 
+    import os
     if args.stub:
-        agent_fn = make_stub_agent(correct=True)
+        agent_fn, mode = make_stub_agent(correct=True), "stub"
     elif args.mock:
-        agent_fn = MockOrchestrator()
+        agent_fn, mode = MockOrchestrator(), "mock"
     else:
         agent_fn = _real_agent()
-    result = run_benchmark(agent_fn, golden=golden)
+        mode = "live_oci" if os.getenv("SELECT_AI_PROFILE") else "offline_cache"
+    result = run_benchmark(agent_fn, golden=golden, mode=mode)
     out = save_result(result)
     print_report(result)
     print(f"\nSaved -> {out}")
