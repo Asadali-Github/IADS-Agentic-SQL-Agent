@@ -41,6 +41,10 @@ import re
 import json
 from typing import Any, Callable
 
+import structlog
+
+_logger = structlog.get_logger()
+
 MEASURE_WORDS: tuple[str, ...] = (
     "revenue",
     "sales",
@@ -305,8 +309,8 @@ JSON:
                         rewritten = data.get("rewritten")
                         if is_related and rewritten:
                             return True, str(rewritten).strip()
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        _logger.warning("classify_and_rewrite_live_failed", error=str(exc))
 
     # Fall back to rules
     is_rel = looks_like_follow_up(question)

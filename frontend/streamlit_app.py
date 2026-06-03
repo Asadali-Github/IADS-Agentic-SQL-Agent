@@ -748,11 +748,16 @@ def _empty_error_response(msg: str, session_id: str | None) -> dict:
 def call_api(question: str, session_id: str | None) -> dict:
     payload = {"question": question, "session_id": session_id}
     try:
-        resp = httpx.post(f"{API_URL}/query", json=payload, timeout=30)
+        resp = httpx.post(f"{API_URL}/query", json=payload, timeout=90)
         resp.raise_for_status()
         return resp.json()
     except httpx.ConnectError:
         return _empty_error_response(COPY["api_unreachable"].format(url=API_URL), session_id)
+    except httpx.ReadTimeout:
+        return _empty_error_response(
+            "The query took too long to process. Try a simpler question or check the database.",
+            session_id,
+        )
     except Exception as exc:  # noqa: BLE001
         return _empty_error_response(str(exc), session_id)
 
@@ -819,8 +824,8 @@ def _render_chart_from_spec(spec: dict | None, df: pd.DataFrame) -> None:
                     )
                     st.plotly_chart(fig, use_container_width=True)
                     return
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as chart_err:  # noqa: BLE001
+            st.caption(f"ℹ️ Auto-generated chart (spec mismatch: {chart_err})")
     _detect_and_render_chart(df)
 
 
@@ -874,6 +879,19 @@ def _detect_and_render_chart(df: pd.DataFrame) -> None:
         st.dataframe(df.describe(), use_container_width=True)
 
 # ---------------------------------------------------------------------------
+# Cached health check (Issue 10 — avoid DB probe on every rerun)
+# ---------------------------------------------------------------------------
+
+@st.cache_data(ttl=30)
+def _check_health() -> dict:
+    """Check API health with a 30-second cache to avoid hammering the DB."""
+    try:
+        resp = httpx.get(f"{API_URL}/health", timeout=5)
+        return resp.json()
+    except Exception:  # noqa: BLE001
+        return {"database": "disconnected"}
+
+# ---------------------------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------------------------
 
@@ -894,12 +912,8 @@ def _render_sidebar() -> None:
         # --- Database status ---
         st.markdown('<div style="font-size:0.7rem;font-weight:700;letter-spacing:1px;color:#94a3b8;text-transform:uppercase;margin-bottom:0.5rem;">Database</div>', unsafe_allow_html=True)
 
-        try:
-            resp = httpx.get(f"{API_URL}/health", timeout=5)
-            health = resp.json()
-            db_connected = health.get("database") == "connected"
-        except Exception:
-            db_connected = False
+        health = _check_health()
+        db_connected = health.get("database") == "connected"
 
         tables: list[str] = st.session_state.db_tables
 
@@ -1112,12 +1126,24 @@ def _pipeline_badges(resp: dict) -> str:
     return html
 
 
-def _render_response(resp: dict) -> None:
+def _render_response(resp: dict, key_suffix: str | None = None) -> None:
     if resp.get("error"):
         st.error(f"❌ {resp['error']}")
         return
 
     confidence = resp.get("confidence", 1.0)
+
+    # -- Resolved question pill (shows when AI rewrote a follow-up) --
+    resolved = resp.get("resolved_question")
+    original = resp.get("question", "")
+    if resolved and resolved.strip().lower() != original.strip().lower():
+        st.markdown(
+            f'<div style="display:inline-block;background:linear-gradient(90deg,#eff6ff,#e0f2fe);'
+            f'border:1px solid #93c5fd;border-radius:20px;padding:0.3rem 0.9rem;'
+            f'font-size:0.82rem;color:#1e40af;margin-bottom:0.6rem;">'
+            f'🔄 <b>AI interpreted as:</b> {resolved}</div>',
+            unsafe_allow_html=True,
+        )
 
     # -- Approximate match banner --
     if resp.get("approximate_match"):
@@ -1139,15 +1165,59 @@ def _render_response(resp: dict) -> None:
         st.markdown(
             f"""
             <div class="{card_class}">
-                <div class="answer-label">✦ Answer</div>
+                <div class="answer-label">✦ Executive Summary</div>
                 <div class="answer-text">{resp['answer']}</div>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-    # -- Confidence bar --
-    st.markdown(_confidence_bar(confidence), unsafe_allow_html=True)
+    # -- Important numbers row --
+    important_numbers = resp.get("important_numbers") or []
+    if important_numbers:
+        st.markdown('<div class="section-title">📌 Important Numbers</div>', unsafe_allow_html=True)
+        num_cols = st.columns(min(len(important_numbers), 4))
+        for i, num in enumerate(important_numbers[:4]):
+            with num_cols[i % len(num_cols)]:
+                st.markdown(
+                    f'<div class="metric-tile"><div class="mt-val" style="font-size:0.95rem;">{num}</div></div>',
+                    unsafe_allow_html=True,
+                )
+
+    # -- Trends & Anomalies --
+    trends = resp.get("trends_anomalies") or []
+    if trends:
+        st.markdown('<div class="section-title">📈 Trends & Anomalies</div>', unsafe_allow_html=True)
+        trend_chips = "".join(
+            f'<div class="insight-chip" style="background:linear-gradient(90deg,#7c3aed,#6d28d9);">{t}</div>'
+            for t in trends
+        )
+        st.markdown(f'<div class="insights-strip">{trend_chips}</div>', unsafe_allow_html=True)
+
+    # -- Final Takeaway card --
+    takeaway = resp.get("final_takeaway")
+    if takeaway:
+        st.markdown(
+            f'<div style="background:linear-gradient(135deg,#ecfdf5,#d1fae5);border:1.5px solid #6ee7b7;'
+            f'border-radius:14px;padding:1rem 1.3rem;margin:0.6rem 0 1rem;'
+            f'box-shadow:0 3px 12px rgba(52,211,153,0.1);animation:fadeIn 0.4s ease-out;">'
+            f'<div style="font-size:0.68rem;font-weight:700;color:#059669;text-transform:uppercase;'
+            f'letter-spacing:1px;margin-bottom:0.3rem;">💡 Bottom Line</div>'
+            f'<div style="font-size:1.05rem;font-weight:600;color:#064e3b;line-height:1.5;">{takeaway}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    # -- Confidence bar + latency badge --
+    latency = resp.get("latency_ms")
+    latency_html = ""
+    if latency is not None:
+        secs = latency / 1000
+        latency_html = (
+            f'<span style="font-size:0.72rem;color:#6b7280;margin-left:0.5rem;">'
+            f'⚡ {secs:.1f}s</span>'
+        )
+    st.markdown(_confidence_bar(confidence) + latency_html, unsafe_allow_html=True)
 
     # -- Pipeline breadcrumb --
     st.markdown(_pipeline_badges(resp), unsafe_allow_html=True)
@@ -1204,6 +1274,7 @@ def _render_response(resp: dict) -> None:
                 file_name="query_results.csv",
                 mime="text/csv",
                 use_container_width=True,
+                key=f"download_{key_suffix}" if key_suffix else "download",
             )
             numeric_cols_list = df.select_dtypes(include="number").columns.tolist()
             if numeric_cols_list:
@@ -1389,26 +1460,25 @@ def main() -> None:
             unsafe_allow_html=True,
         )
 
-    # Handle example button click
+    # Handle example button click — append to history and rerun (avoid duplicate render)
     if getattr(st.session_state, "_example_question", None):
         eq = st.session_state._example_question
         del st.session_state._example_question
-        with st.chat_message("user"):
-            st.markdown(eq)
-        with st.chat_message("assistant"):
-            with st.spinner("Running pipeline…"):
-                resp = call_api(eq, st.session_state.session_id)
-            if resp.get("session_id"):
-                st.session_state.session_id = resp["session_id"]
-            st.session_state.history.append({"question": eq, "response": resp})
-            _render_response(resp)
+        with st.status("🤖 Thinking...", expanded=True) as status:
+            status.update(label="📚 Retrieving context & generating SQL...", state="running")
+            resp = call_api(eq, st.session_state.session_id)
+            status.update(label="✅ Done!", state="complete", expanded=False)
+        if resp.get("session_id"):
+            st.session_state.session_id = resp["session_id"]
+        st.session_state.history.append({"question": eq, "response": resp})
+        st.rerun()
 
     # Render conversation history as chat bubbles
-    for entry in st.session_state.history:
+    for idx, entry in enumerate(st.session_state.history):
         with st.chat_message("user"):
             st.markdown(entry["question"])
         with st.chat_message("assistant"):
-            _render_response(entry["response"])
+            _render_response(entry["response"], key_suffix=f"hist_{idx}")
 
     # Chat input — Streamlit pins this to the bottom automatically
     question = st.chat_input(COPY["chat_placeholder"])
@@ -1416,12 +1486,14 @@ def main() -> None:
         with st.chat_message("user"):
             st.markdown(question)
         with st.chat_message("assistant"):
-            with st.spinner("Running pipeline…"):
+            with st.status("🤖 Thinking...", expanded=True) as status:
+                status.update(label="📚 Retrieving context & generating SQL...", state="running")
                 resp = call_api(question, st.session_state.session_id)
+                status.update(label="✅ Done!", state="complete", expanded=False)
             if resp.get("session_id"):
                 st.session_state.session_id = resp["session_id"]
             st.session_state.history.append({"question": question, "response": resp})
-            _render_response(resp)
+            _render_response(resp, key_suffix="current")
 
 
 if __name__ == "__main__":

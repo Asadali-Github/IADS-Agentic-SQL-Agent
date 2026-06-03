@@ -44,8 +44,8 @@ class QueryOrchestrator:
             is_related, resolved_question = classify_and_rewrite_live(
                 resolved_question,
                 previous_question,
-                self.sql_generator.profile_name,
-                self.sql_generator.connection_factory,
+                getattr(self.sql_generator, "profile_name", None),
+                getattr(self.sql_generator, "connection_factory", None),
             )
             
         if not is_related and previous_question:
@@ -54,14 +54,7 @@ class QueryOrchestrator:
             resolved_question = user_question.strip()
 
         retrieved_documents = self.retriever.retrieve(resolved_question)
-        support_assessment = assess_question_support(user_question, retrieved_documents)
-        if (
-            not support_assessment["is_supported"]
-            and support_assessment["reason"]
-            == "The question did not contain enough searchable business terms."
-            and resolved_question != user_question.strip()
-        ):
-            support_assessment = assess_question_support(resolved_question, retrieved_documents)
+        support_assessment = assess_question_support(resolved_question, retrieved_documents)
         if not support_assessment["is_supported"]:
             response = self._unsupported_response(
                 user_question=user_question,

@@ -142,7 +142,7 @@ class AnswerSummary(BaseModel):
         default_factory=list,
         description="Major trend shifts, growths, declines, or outlier anomalies.",
     )
-    final_takeaway: Optional[str] = Field(
+    final_takeaway: str | None = Field(
         default=None,
         description="A plain-English actionable conclusion/takeaway for a business manager.",
     )

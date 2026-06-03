@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from collections.abc import Callable
 from typing import Any
 
+import structlog
 from dotenv import load_dotenv
 
 from app.sql.oracle_connection import connect_adb
+
+_logger = structlog.get_logger()
 
 ConnectionFactory = Callable[[], Any]
 
@@ -56,14 +60,14 @@ class SelectAIResultSummariser:
         important_numbers = []
         trends_anomalies = []
         final_takeaway = None
+        error = None
 
         if self.profile_name:
             prompt = self._build_prompt(user_question, generated_sql, query_results)
             try:
-                import re
                 with self.connection_factory() as connection:
                     response_text = self._call_select_ai(connection, prompt)
-                
+
                 match = re.search(r"\{.*\}", response_text, re.S)
                 if match:
                     data = json.loads(match.group())
@@ -73,8 +77,13 @@ class SelectAIResultSummariser:
                         trends_anomalies = [str(x).strip() for x in data.get("trends_anomalies", []) if x]
                         if data.get("final_takeaway"):
                             final_takeaway = str(data["final_takeaway"]).strip()
+                else:
+                    _logger.warning("summariser_no_json_in_response", response_preview=response_text[:200])
+                    answer = response_text
             except Exception as exc:  # noqa: BLE001
-                pass
+                _logger.error("summariser_select_ai_failed", error=str(exc))
+        else:
+            error = "SELECT_AI_PROFILE is not set."
 
         if not answer:
             answer = self._local_summary(rows)
@@ -116,6 +125,7 @@ class SelectAIResultSummariser:
             final_takeaway=final_takeaway,
             provider="oracle_select_ai" if self.profile_name else "local",
             prompt_row_count=min(len(rows), self.max_rows_to_send),
+            error=error,
         )
 
     def _call_select_ai(self, connection: Any, prompt: str) -> str:
@@ -146,25 +156,33 @@ class SelectAIResultSummariser:
         generated_sql: dict[str, Any],
         query_results: dict[str, Any],
     ) -> str:
-        rows = query_results.get("rows", [])[: self.max_rows_to_send]
-        payload = {
-            "question": user_question,
-            "sql": generated_sql.get("sql"),
-            "columns": query_results.get("columns", []),
-            "rows": rows,
-            "total_rows_returned": query_results.get("row_count", len(rows)),
-        }
+        rows = query_results.get("rows", [])[:self.max_rows_to_send]
+        columns = query_results.get("columns", [])
+        total_rows = query_results.get("row_count", len(rows))
+        sql = generated_sql.get("sql") or "N/A"
+
         return (
-            "You are a business summarization assistant. Analyze the query results and write a structured business summary. "
-            "Do not invent any numbers. Keep explanations plain and non-technical. "
-            "Respond STRICTLY in a JSON object format with the following keys:\n"
-            "{\n"
-            '  "answer": "A short, direct executive summary of 1-2 sentences answering the user\'s question",\n'
-            '  "important_numbers": ["bullet points of key numbers, totals, or aggregates"],\n'
-            '  "trends_anomalies": ["bullet points of trends, growths, declines, or outlier anomalies"],\n'
-            '  "final_takeaway": "A simple plain-English takeaway/conclusion for a business manager"\n'
-            "}\n"
-            f"Result payload: {json.dumps(payload, default=str)}\n"
+            "You are a senior business data analyst. A user asked a question, "
+            "we ran a database query, and it returned the data below.\n\n"
+            "YOUR TASK:\n"
+            "1. Write a 1-2 sentence executive summary that directly answers the user's question.\n"
+            "2. List 2-4 important numbers, totals, or aggregates from the data.\n"
+            "3. Note any trends, growth patterns, declines, or anomalies you see.\n"
+            "4. Write one plain-English takeaway a business manager can act on.\n\n"
+            "STRICT RULES:\n"
+            "- Do NOT invent or estimate numbers — only use what is in the data.\n"
+            "- Keep language simple and non-technical.\n"
+            "- Respond with ONLY a JSON object — no prose, no markdown, no explanation.\n\n"
+            "REQUIRED JSON FORMAT:\n"
+            '{"answer": "<1-2 sentence executive summary>", '
+            '"important_numbers": ["<key number 1>", "<key number 2>"], '
+            '"trends_anomalies": ["<trend or anomaly 1>"], '
+            '"final_takeaway": "<actionable business takeaway>"}\n\n'
+            f"USER QUESTION: {user_question}\n"
+            f"SQL QUERY: {sql}\n"
+            f"COLUMNS: {', '.join(columns)}\n"
+            f"TOTAL ROWS RETURNED: {total_rows}\n"
+            f"DATA: {json.dumps(rows, default=str)}\n"
             "JSON:"
         )
 

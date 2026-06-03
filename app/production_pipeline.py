@@ -23,8 +23,14 @@ from __future__ import annotations
 
 import os
 import sys
+import time
+from collections import OrderedDict
 from pathlib import Path
 from typing import Optional
+
+import structlog
+
+_logger = structlog.get_logger()
 
 _ROOT = Path(__file__).resolve().parents[1]
 for _p in (str(_ROOT), str(_ROOT / "src")):
@@ -70,23 +76,33 @@ class ProductionPipeline:
     """Routes each request to the live Oracle backend, normalising the output.
 
     Keeps one QueryOrchestrator per session so ConversationMemory (multi-turn)
-    survives across follow-up questions.
+    survives across follow-up questions.  Uses LRU eviction to bound memory.
     """
 
+    MAX_SESSIONS = 100
+
     def __init__(self) -> None:
-        self._by_session: dict[str, object] = {}
+        self._by_session: OrderedDict[str, object] = OrderedDict()
 
     def _orchestrator(self, session_id: Optional[str]):
         key = session_id or "_default"
-        if key not in self._by_session:
-            # Import lazily, only when we actually need to construct one, so a
-            # pre-injected orchestrator (tests) never triggers the heavy import.
-            from app.agents.query_orchestrator import QueryOrchestrator
+        if key in self._by_session:
+            self._by_session.move_to_end(key)
+            return self._by_session[key]
+        # Import lazily, only when we actually need to construct one, so a
+        # pre-injected orchestrator (tests) never triggers the heavy import.
+        from app.agents.query_orchestrator import QueryOrchestrator
 
-            self._by_session[key] = QueryOrchestrator()
-        return self._by_session[key]
+        orch = QueryOrchestrator()
+        self._by_session[key] = orch
+        # Evict oldest sessions to bound memory
+        while len(self._by_session) > self.MAX_SESSIONS:
+            evicted_key, _ = self._by_session.popitem(last=False)
+            _logger.debug("session_evicted", session_id=evicted_key)
+        return orch
 
     def run(self, question: str, session_id: Optional[str] = None) -> dict:
+        t0 = time.perf_counter()
         orch = self._orchestrator(session_id)
         r = orch.process_question(question)
 
@@ -102,6 +118,7 @@ class ProductionPipeline:
         insights, chart = _enrich(question, columns, rows) if rows else ([], None)
 
         confidence = 0.9 if status == "success" else (0.6 if approximate else 0.3)
+        latency_ms = round((time.perf_counter() - t0) * 1000, 1)
         return {
             "question": question,
             "resolved_question": r.get("resolved_question", question),
@@ -122,7 +139,7 @@ class ProductionPipeline:
             "approximate_match": approximate,
             "provider": ans.get("provider") or gen.get("provider"),
             "retrieved_doc_ids": [d.get("id") for d in r.get("retrieved_documents", []) or []],
-            "latency_ms": None,
+            "latency_ms": latency_ms,
             "error": qr.get("error") or gen.get("error"),
             "session_id": session_id,
             "pipeline_stage": r.get("pipeline_stage"),
@@ -140,8 +157,8 @@ def answer_question(question: str, session_id: Optional[str] = None) -> dict:
             if _PROD is None:
                 _PROD = ProductionPipeline()
             return _PROD.run(question, session_id=session_id)
-        except Exception:  # noqa: BLE001 - never 500 the API; fall back to offline
-            pass
+        except Exception as exc:  # noqa: BLE001 - never 500 the API; fall back to offline
+            _logger.error("production_pipeline_failed", error=str(exc), question=question[:100])
     from app.pipeline import answer_question as offline_answer
 
     return offline_answer(question, session_id=session_id)

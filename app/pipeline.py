@@ -229,7 +229,7 @@ class FullPipeline:
         if not session_id:            # no multi-turn without an explicit session
             return q
             
-        from app.agents.followups import looks_like_follow_up, resolve_follow_up
+        from app.agents.followups import looks_like_follow_up
         
         is_rel = looks_like_follow_up(q)
         if not is_rel:

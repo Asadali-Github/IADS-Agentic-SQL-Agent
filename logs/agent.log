@@ -3,3 +3,14 @@
 2026-06-03 18:47:01,573 - iads_agent - ERROR - get_stats:147 - Failed to compute stats: File logs\metrics.jsonl does not exist
 2026-06-03 18:47:46,861 - iads_agent - ERROR - get_stats:147 - Failed to compute stats: File logs\metrics.jsonl does not exist
 2026-06-03 18:48:54,288 - iads_agent - ERROR - get_stats:147 - Failed to compute stats: File logs\metrics.jsonl does not exist
+2026-06-03 20:53:44,486 - iads_agent - INFO - monitoring_middleware:142 - Query completed (704ms, status=200)
+2026-06-03 20:55:12,934 - iads_agent - INFO - monitoring_middleware:142 - Query completed (8605ms, status=200)
+2026-06-03 20:57:53,194 - iads_agent - INFO - monitoring_middleware:142 - Query completed (7321ms, status=200)
+2026-06-03 21:02:06,077 - iads_agent - INFO - monitoring_middleware:142 - Query completed (7854ms, status=200)
+2026-06-03 21:03:13,096 - iads_agent - INFO - monitoring_middleware:142 - Query completed (11448ms, status=200)
+2026-06-03 21:03:32,875 - iads_agent - INFO - monitoring_middleware:142 - Query completed (2982ms, status=200)
+2026-06-03 21:04:11,159 - iads_agent - INFO - monitoring_middleware:142 - Query completed (8976ms, status=200)
+2026-06-03 21:04:37,273 - iads_agent - INFO - monitoring_middleware:142 - Query completed (8995ms, status=200)
+2026-06-03 21:05:55,119 - iads_agent - INFO - monitoring_middleware:142 - Query completed (4556ms, status=200)
+2026-06-03 21:12:12,890 - iads_agent - INFO - monitoring_middleware:142 - Query completed (1343ms, status=200)
+2026-06-03 21:12:53,002 - iads_agent - INFO - monitoring_middleware:142 - Query completed (12069ms, status=200)
