@@ -1,4 +1,4 @@
-.PHONY: help install dev test lint format typecheck run-api run-ui benchmark preprocess seed-db refresh-schema-descriptions embed-schema docker-build docker-up docker-down clean
+.PHONY: help install dev test lint format typecheck run-api run-ui benchmark preprocess synth-queries demo-summariser stress-summariser seed-db refresh-schema-descriptions embed-schema docker-build docker-up docker-down clean
 
 help:  ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
@@ -33,6 +33,15 @@ benchmark:  ## Run benchmark against the golden query set
 
 preprocess:  ## Clean raw data in data/raw/ into seed CSVs in db/seed/
 	python scripts/preprocess_raw_data.py
+
+synth-queries:  ## Generate synthetic stress-test queries from the schema
+	python scripts/generate_synthetic_queries.py
+
+demo-summariser:  ## Run the Summariser over mock inputs (no DB needed)
+	python scripts/demo_summariser.py
+
+stress-summariser:  ## Adversarial edge-case stress test for the Summariser
+	python scripts/stress_summariser.py
 
 seed-db:  ## Apply db/ddl + load db/seed into the Autonomous DB
 	python scripts/seed_database.py

@@ -1,56 +1,62 @@
-# Schema descriptions — the "features" the RAG layer embeds.
-# Status: scaffold — fill in during the hackathon.
-# Owner: Asad (data modelling) + Abdul Qayyum (keeping in sync with db/ddl)
-#
-# One entry per table. Each table has:
-#   description : 1–2 sentences in business language
-#   primary_key : column name
-#   columns     : list of column descriptions
-#
-# Quality bar: a non-technical reader should be able to understand the
-# meaning of every column from the description alone. Mention units, time
-# zones, currencies, encoding standards.
-
-tables: []
-
-# Example structure (uncomment and adapt):
-#
-# tables:
-#   - name: customers
-#     description: |
-#       One row per customer account. Created when the user first signs up.
-#       A customer can have zero or many orders.
-#     primary_key: customer_id
-#     columns:
-#       - name: customer_id
-#         type: NUMBER
-#         description: Surrogate primary key. Not exposed externally.
-#       - name: full_name
-#         type: VARCHAR2(200)
-#         description: Customer's display name, free text, may contain unicode.
-#       - name: country_code
-#         type: CHAR(2)
-#         description: ISO 3166-1 alpha-2 country code. e.g. GB, US, DE.
-#         sample_values: ["GB", "US", "DE", "FR"]
-#       - name: created_at
-#         type: TIMESTAMP
-#         description: When the account was created, UTC.
-#
-#   - name: orders
-#     description: |
-#       One row per completed order. Joins to customers via customer_id.
-#     primary_key: order_id
-#     columns:
-#       - name: order_id
-#         type: NUMBER
-#         description: Surrogate primary key.
-#       - name: customer_id
-#         type: NUMBER
-#         description: Foreign key to customers.customer_id.
-#         foreign_key: customers.customer_id
-#       - name: order_date
-#         type: DATE
-#         description: Date the order was placed (no time component).
-#       - name: total_gbp
-#         type: NUMBER(12,2)
-#         description: Total order value in pounds sterling, including VAT.
+version: 1
+tables:
+  customers:
+    description: One row per registered customer. The master record every order links
+      back to.
+    grain: One row per customer.
+    columns:
+      customer_id:
+        description: Unique identifier for a customer; referenced by orders.
+        type: NUMBER
+        pk: true
+      full_name:
+        description: Customer's full display name. May be personal data - never surface
+          in logs unredacted.
+        type: VARCHAR2(200)
+        pii: true
+      country_code:
+        description: Country the customer registered from.
+        type: CHAR(2)
+        units: ISO 3166-1 alpha-2
+        sample_values:
+        - GB
+        - US
+        - FR
+        - DE
+        - IE
+      created_at:
+        description: When the customer account was created.
+        type: TIMESTAMP
+        timezone: UTC
+  orders:
+    description: One row per placed order. The central fact table for revenue questions.
+    grain: One row per order.
+    columns:
+      order_id:
+        description: Unique identifier for an order.
+        type: NUMBER
+        pk: true
+      customer_id:
+        description: The customer who placed the order; foreign key to customers.
+        type: NUMBER
+        fk: customers.customer_id
+      order_date:
+        description: Calendar date the order was placed. Used for all date filtering.
+        type: DATE
+        timezone: UTC
+      status:
+        description: Lifecycle state of the order.
+        type: VARCHAR2(20)
+        sample_values:
+        - placed
+        - paid
+        - shipped
+        - delivered
+        - cancelled
+        - refunded
+      total_gbp:
+        description: Total order value. The canonical "revenue" measure - SUM this
+          for revenue/sales/turnover questions.
+        type: NUMBER(12,2)
+        currency: GBP
+        units: pounds sterling

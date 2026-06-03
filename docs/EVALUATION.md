@@ -1,41 +1,139 @@
 # Evaluation methodology
 
-> Status: scaffold — content to be added during the hackathon.
+Owner: Asad. This document defines how we measure the agent. It is the contract
+behind the headline number on the demo slide, so every metric here is computed by
+code in `evaluation/metrics.py` and exercised by `tests/unit/test_metrics.py` —
+nothing here is hand-waved.
 
-## Golden query set
+## The golden query set
 
-Path: `evaluation/datasets/golden_queries.jsonl`
+`evaluation/datasets/golden_queries.jsonl` is the single most important dataset
+in the project: without it nothing can be measured. Each line is one
+`GoldenQuery` (see `src/sql_agent/core/models.py`):
 
-Row schema:
+| field | meaning |
+|-------|---------|
+| `id` | stable identifier, e.g. `q001` |
+| `question` | the natural-language question |
+| `expected_sql` | canonical reference SQL (Oracle dialect) |
+| `expected_rows` | the reference result set, as ordered rows |
+| `expected_tables` | tables the reference SQL touches |
+| `difficulty` | `easy` \| `medium` \| `hard` |
+| `order_matters` | `true` when the reference query has a meaningful `ORDER BY` (top-N, ranking) |
+| `tags` | SQL patterns exercised, e.g. `["join","window"]` |
 
-- `id` — stable identifier (e.g. `q001`)
-- `question` — natural-language question
-- `expected_sql` — canonical SQL answer
-- `expected_rows` — small reference result set (or row count)
-- `difficulty` — `easy` | `medium` | `hard`
-- `tags` — e.g. `["aggregate", "join", "subquery"]`
+The current file holds 21 questions (7 easy / 8 medium / 6 hard) spanning counts,
+filters, joins, group-by, date logic, `HAVING`, subqueries, CTEs and window
+functions. It is built against the **provisional** `customers` / `orders` schema;
+the `expected_rows` are illustrative and must be **recaptured against the seeded
+Oracle database** during the demo dry-run (see "Capturing expected rows" below).
 
 ## Metrics
 
-- **Execution accuracy** — does the generated SQL produce the same rows as the expected SQL?
-- **Exact-set match** — are the two result sets identical (order-insensitive)?
-- **Partial match** — column overlap, row overlap.
-- **Retry rate** — average critic loops per query.
-- **Latency p50 / p95** — wall-clock time per query.
-- **Token cost** — prompt + completion tokens × OCI price.
+All metrics are computed per question and then aggregated across the run.
+
+**Execution accuracy** (headline). Does the generated SQL, when executed, return
+the same rows as the reference SQL? Comparison is multiset-based and
+order-insensitive by default, becoming order-sensitive when `order_matters` is
+set. Cells are normalised first: integers and floats are compared numerically
+with rounding to 4 decimals (so `5` == `5.0` and rounding noise from `SUM`/`AVG`
+does not cause spurious failures), and strings are trimmed. This is the
+pass/fail signal.
+
+**Exact-set match.** Do the two result sets contain the same rows ignoring order
+*and* duplicates (set equality)? Slightly more forgiving than execution accuracy
+on duplicate handling; useful for diagnosing near-misses.
+
+**Partial match.** What fraction of the expected rows appear in the actual
+result (recall over the expected row set, in `[0, 1]`)? Lets us award partial
+credit and show progress between hourly runs instead of a binary number.
+
+**Retry rate.** Fraction of questions that needed at least one correction loop.
+A proxy for how often the generator gets it wrong on the first attempt.
+
+**Latency p50 / p95.** Median and tail end-to-end wall-clock latency per
+question, via linear-interpolated percentiles.
+
+**Token cost per request.** Mean USD cost across calls, priced by
+`src/sql_agent/llm/token_counter.py` against the OCI Generative AI rate card.
+Reported with the run total so the model-router savings can be quantified.
+
+Per-tier execution accuracy (`execution_accuracy_easy/medium/hard`) is also
+emitted for the slide breakdown.
 
 ## How to run
 
 ```bash
-make benchmark   # runs against golden set, writes evaluation/results/runs/<timestamp>.json
+make benchmark                       # real pipeline against the golden set
+python scripts/run_benchmark.py --stub        # harness self-check (perfect agent)
+python scripts/run_benchmark.py --threshold 0.8   # exit non-zero below 80% pass rate
 ```
+
+Each run writes a timestamped `BenchmarkResult` to
+`evaluation/results/runs/<run_id>.json` and prints a pass/fail report. Runs are
+cheap and idempotent — intended to be run hourly during Day 2.
+
+## Capturing expected rows
+
+Because we target Oracle/OCI, `expected_rows` cannot be generated offline. Once
+`db/ddl/01_create_tables.sql` is final and `make seed-db` has loaded the data:
+
+1. Run each `expected_sql` against the seeded database.
+2. Paste the returned rows into the matching golden line's `expected_rows`.
+3. Set `order_matters` to `true` for any query whose `ORDER BY` is meaningful.
+4. Re-run `make benchmark` and commit the dataset plus the result JSON.
 
 ## How to add a query
 
-1. Append a row to `evaluation/datasets/golden_queries.jsonl`.
-2. Run `make benchmark` and verify pass/fail.
-3. Commit the new row and the updated result.
+Append a `GoldenQuery` line to `golden_queries.jsonl`, capture its
+`expected_rows` as above, run `make benchmark`, and commit the row with the
+updated result. Keep the example bank (`example_queries.jsonl`) **disjoint** from
+the golden set — the few-shot retriever must never be shown a benchmark answer.
+
+## Semantic correctness over string matching
+
+A static reference SQL string breaks the moment someone renames an alias,
+reflows whitespace, or the dialect shifts - yet the query still *means* the same
+thing. We therefore never score on raw SQL string equality. Two complementary,
+schema-change-robust checks back up execution accuracy:
+
+- **`ast_match`** (`metrics.sql_ast_match`). Both the reference and generated SQL
+  are parsed to an Abstract Syntax Tree with `sqlglot` and canonicalised:
+  column aliases are stripped, identifiers lower-cased, formatting standardised,
+  and the operands of commutative operators (`=`, `AND`, `OR`, `+`, `*`) sorted.
+  Two queries that are logically equivalent reduce to the same canonical string.
+  This is the only correctness signal available when the database cannot be
+  executed against (e.g. before the seed data lands), and it is robust to the
+  cosmetic differences that defeat string matching.
+- **`sql_structural_similarity`** gives partial credit by comparing a structural
+  fingerprint (tables, functions, presence of join/where/group/order/having,
+  projection arity) - useful for triaging near-misses.
+
+Execution accuracy remains the headline; AST/structure checks make the harness
+resilient to schema churn and give signal when execution is impossible.
+
+## The glossary as a feature-engineering layer
+
+In text-to-SQL, the descriptions and synonyms attached to the schema are the
+"features": richer business context at retrieval time yields better SQL. Two
+artifacts in `db/` carry that context, and a resolver turns it into a live
+retrieval signal:
+
+- `schema_descriptions.yaml` - per-column business descriptions plus units,
+  timezones, currencies and sample values, embedded by the RAG layer.
+- `glossary.yaml` (hierarchical) - canonical business terms with variations and a
+  `maps_to` physical target (e.g. revenue / sales / turnover / ARR -> `orders.total_gbp`).
+  `retrieval/glossary.py` resolves a user phrase to these terms (exact -> contains
+  -> fuzzy -> optional embedder) and exposes `expand_query_terms()`, which appends
+  the matched synonyms and targets to the text the retriever embeds - directly
+  widening vector-search recall so "what was our turnover?" still retrieves the
+  `total_gbp` column it never names.
+
+This is the highest-leverage, lowest-cost accuracy work in the project: every
+synonym and description added here compounds through retrieval into the generated
+SQL.
 
 ## Reference benchmarks
 
-See [`RELATED_WORK.md`](RELATED_WORK.md).
+Our metric definitions follow the text-to-SQL literature; see
+[`RELATED_WORK.md`](RELATED_WORK.md).

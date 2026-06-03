@@ -1,29 +1,83 @@
-# Business glossary — synonyms the agent maps to canonical column names.
-# Status: scaffold — fill in during the hackathon.
+# ============================================================================
+# glossary.yaml  (v2 - hierarchical)
 # Owner: Asad
 #
-# Format:
-#   canonical_term:
-#     description: what this term means in our business
-#     synonyms: [list, of, phrasings, users, might, say]
-#     maps_to: dotted column reference (table.column)
+# Business-term -> schema mapping, used as a retrieval signal: when a user says
+# "turnover" or "ARR", the retriever should still surface orders.total_gbp.
+# Resolved by src/sql_agent/retrieval/glossary.py (GlossaryResolver), which does
+# normalisation + synonym + fuzzy matching, with an optional embedder hook for
+# true semantic matching.
 #
-# Why this exists:
-#   Users say "revenue" or "sales" or "turnover" — all the same column.
-#   The agent uses this glossary as additional retrieval signal so the
-#   right column is picked regardless of the user's wording.
+# Each term has:
+#   canonical            the primary name
+#   maps_to              physical target (table or table.column)
+#   variations           surface forms / synonyms that resolve to this term
+#   default_aggregation  SUM | COUNT | AVG | ... (optional)
+#   parent / children    hierarchy (e.g. ARR and MRR are kinds of revenue)
+#   type                 measure | segment | time_expression (optional)
+#   filter / definition  business rule attached to the term (optional)
+#
+# STATUS: PROVISIONAL - aligned to the customers/orders scaffold.
+# ============================================================================
+version: 2
 
-terms: []
+terms:
+  - canonical: revenue
+    maps_to: orders.total_gbp
+    type: measure
+    default_aggregation: SUM
+    variations: [sales, turnover, takings, income, gross sales, total spend]
+    children: [arr, mrr]
+    notes: Always GBP. Exclude cancelled/refunded orders unless asked otherwise.
 
-# Example:
-#
-# terms:
-#   revenue:
-#     description: Total order value in pounds sterling, including VAT.
-#     synonyms: [sales, turnover, gross, income, takings]
-#     maps_to: orders.total_gbp
-#
-#   region:
-#     description: ISO country code where the customer is based.
-#     synonyms: [country, market, geography, territory]
-#     maps_to: customers.country_code
+  - canonical: arr
+    parent: revenue
+    maps_to: orders.total_gbp
+    type: measure
+    default_aggregation: SUM
+    variations: [annual recurring revenue, annualised revenue, annualized revenue,
+                 subscription sales, yearly recurring revenue]
+    filter: subscription orders, annualised
+
+  - canonical: mrr
+    parent: revenue
+    maps_to: orders.total_gbp
+    type: measure
+    default_aggregation: SUM
+    variations: [monthly recurring revenue, monthly subscription revenue]
+    filter: subscription orders, monthly
+
+  - canonical: order_count
+    maps_to: orders
+    type: measure
+    default_aggregation: COUNT
+    variations: [number of orders, orders placed, order volume, how many orders, order count]
+
+  - canonical: average order value
+    maps_to: orders.total_gbp
+    type: measure
+    default_aggregation: AVG
+    variations: [aov, basket size, average spend per order, average basket]
+
+  - canonical: customer
+    maps_to: customers
+    variations: [client, buyer, account, shopper, customers]
+
+  - canonical: active customer
+    parent: customer
+    maps_to: customers
+    type: segment
+    variations: [active account, engaged customer, active customers]
+    definition: A customer with at least one non-cancelled order in the last 12 months.
+
+  - canonical: last quarter
+    maps_to: orders.order_date
+    type: time_expression
+    variations: [previous quarter, prior quarter, past quarter]
+    definition: The most recent complete calendar quarter relative to today.
+
+  - canonical: last month
+    maps_to: orders.order_date
+    type: time_expression
+    variations: [previous month, prior month, past month]
+    definition: The most recent complete calendar month relative to today.

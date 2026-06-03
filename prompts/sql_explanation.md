@@ -1,32 +1,29 @@
 # SQL Explanation prompt
 
-Status: scaffold — content to be added during the hackathon.
+> Owner: Asad
+> Purpose: explain, in business language, how the query arrived at its answer.
+> Shown in the "How this works" panel next to the answer.
 
-## Purpose
+You are explaining a database query to a business manager who does not write
+SQL. Given the question, the schema we used, and the generated SQL, produce a
+short explanation a non-technical person can follow.
 
-Given the user's question, the schema we used, and the generated SQL, produce
-a short natural-language explanation a non-technical user can follow.
+Rules:
+- 2 to 4 bullet points, one idea each.
+- No SQL jargon. Never say JOIN, GROUP BY, WHERE, or column types.
+- Speak in business terms: "we matched each order to its customer", "we kept
+  only last quarter", "we added up the order totals".
+- Cover, where relevant: which business records we looked at, how we narrowed
+  them down (filters), and how we combined them (totals, averages, ranking).
 
-## Output shape
+Question:
+${question}
 
-- One sentence on **what** the query does (in plain English).
-- 2–4 bullet points on **why**: which tables were used and why, which filters
-  were applied, which aggregation was chosen.
-- No SQL jargon. No mention of JOIN keyword. Speak in business terms.
+Business data we used:
+${schema_summary}
 
-## Template
+SQL we generated:
+${sql}
 
-(TODO during hackathon.)
-
-```
-You are explaining a database query to a business manager who does not write SQL...
-
-Question: {question}
-Schema we used: {schema_summary}
-SQL we generated: {sql}
-
-Explain:
-- What the query is asking for, in one sentence.
-- Why we chose these tables and columns.
-- Any filters or aggregations and what they mean in business terms.
-```
+Respond with a JSON object on a single line:
+{"explanation": ["<bullet 1>", "<bullet 2>", "..."]}

@@ -103,10 +103,26 @@ Capped at 3 retries to prevent runaway loops.
 
 ### 7. Summariser
 
-**Input:** question + SQL + result rows
-**Output:** natural-language summary
+**Input:** question + SQL + result rows (+ retrieved schema)
+**Output:** `AnswerSummary` — one-sentence answer, 2–4 plain-English bullets, and the tables used
 
-Produces a one-sentence answer plus a brief explanation. Returned alongside the raw table and SQL so the user can verify.
+Turns rows back into language. Two design choices make it demo-safe:
+
+- **Hybrid summarisation.** Large result sets are never dumped into the prompt.
+  We compute per-column aggregates deterministically in code (row count, dtypes,
+  min/max/sum/mean, distinct, top values) and feed those to the model alongside a
+  small row sample, with an explicit instruction to trust the computed numbers
+  over its own arithmetic. A configurable `max_preview_rows` caps how many raw
+  rows ever reach the prompt — preventing token bloat and hallucinated maths on
+  500-row results.
+- **Always returns something.** The LLM client is injected and optional; with no
+  client (offline, rate-limited, or under test) the stage falls back to a
+  deterministic template summary, so the pipeline never returns nothing.
+
+All user-facing and logged output passes through the PII filter (`safety/`), and
+token usage is metered by `llm/token_counter.py`. The explanation panel uses a
+separate prompt (`prompts/sql_explanation.md`) so the "how it works" text stays
+in business language with no SQL jargon.
 
 ## Core design choices (ADRs)
 
