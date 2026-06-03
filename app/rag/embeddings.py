@@ -35,15 +35,20 @@ STOP_WORDS = {
 }
 
 SYNONYMS = {
+    "sales": ["revenue"],
+    "revenue": ["sales", "turnover"],
+    "turnover": ["revenue", "sales"],
+    "profit": ["margin", "earnings"],
+    "margin": ["profit"],
+    "units": ["quantity"],
+    "quantity": ["units"],
     "customer": ["customers"],
     "customers": ["customer"],
-    "inventory": ["stock"],
-    "low": ["reorder"],
     "product": ["products"],
     "products": ["product"],
-    "sales": ["revenue", "orders", "kpi"],
-    "stock": ["inventory", "quantity"],
-    "total": ["sum", "revenue", "kpi"],
+    "category": ["categories"],
+    "region": ["area", "zone"],
+    "total": ["sum"],
 }
 
 
