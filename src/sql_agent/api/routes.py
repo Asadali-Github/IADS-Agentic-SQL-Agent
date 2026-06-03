@@ -11,6 +11,14 @@ import uuid
 from fastapi import APIRouter, HTTPException
 
 from sql_agent.api.schemas import HealthResponse, QueryRequest, QueryResponse
+from sql_agent.core.exceptions import (
+    DatabaseError,
+    LLMError,
+    QueryParseError,
+    RateLimitError,
+    ServiceUnavailableError,
+    TimeoutError,
+)
 
 router = APIRouter()
 
@@ -85,12 +93,43 @@ def query(request: QueryRequest) -> QueryResponse:
             return _pipeline_query(request.question, session_id)
         # Fallback: stub response if the pipeline could not be imported.
         return _stub_orchestrator(request.question, session_id)
+    except QueryParseError:
+        return QueryResponse(
+            answer="",
+            error="I understood your question, but our current system doesn't track that. Try asking about sales, orders, customers, or products.",
+            session_id=session_id,
+        )
+    except TimeoutError:
+        return QueryResponse(
+            answer="",
+            error="Your question needed more time than I have available. Try a simpler question.",
+            session_id=session_id,
+        )
+    except DatabaseError:
+        return QueryResponse(
+            answer="",
+            error="There was a problem querying the database. Please try again in a moment.",
+            session_id=session_id,
+        )
+    except LLMError:
+        return QueryResponse(
+            answer="",
+            error="The AI service returned an error. Please try again.",
+            session_id=session_id,
+        )
+    except RateLimitError:
+        return QueryResponse(
+            answer="",
+            error="Too many requests. Please wait a moment and try again.",
+            session_id=session_id,
+        )
+    except ServiceUnavailableError:
+        return QueryResponse(
+            answer="",
+            error="The service is temporarily unavailable. Please try again shortly.",
+            session_id=session_id,
+        )
     except Exception as exc:  # noqa: BLE001
-        # OMAR: once core/exceptions.py is defined, catch typed exceptions here
-        # and return a specific friendly message for each one instead of the
-        # generic fallback below. e.g.:
-        #   except OutOfScopeError:
-        #       return QueryResponse(answer="", error="That question is outside...", ...)
         return QueryResponse(
             answer="",
             error=f"Something went wrong: {exc}",
