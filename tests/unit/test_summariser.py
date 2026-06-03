@@ -84,3 +84,22 @@ def test_summarise_falls_back_when_profile_is_missing() -> None:
     assert result["provider"] == "local"
     assert "top row is PRODUCT_CATEGORY: Electronics" in result["answer"]
     assert result["error"] == "SELECT_AI_PROFILE is not set."
+
+
+def test_summarise_accepts_fallback_success_results() -> None:
+    summariser = SelectAIResultSummariser(profile_name="", connection_factory=lambda: None)
+
+    result = summariser.summarise(
+        user_question="What were total sales by product category?",
+        generated_sql={"sql": "SELECT ..."},
+        query_results={
+            "status": "fallback_success",
+            "rows": [
+                {"PRODUCT_CATEGORY": "Electronics", "TOTAL_SALES": 57485698.06},
+                {"PRODUCT_CATEGORY": "Home & Furniture", "TOTAL_SALES": 47674426.96},
+            ],
+        },
+    )
+
+    assert result["provider"] == "local"
+    assert "top row is PRODUCT_CATEGORY: Electronics" in result["answer"]

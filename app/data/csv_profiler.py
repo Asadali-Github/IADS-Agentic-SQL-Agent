@@ -9,7 +9,6 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-
 DEFAULT_SAMPLE_SIZE = 5
 
 
@@ -55,7 +54,10 @@ def profile_csv(file_path: Path, sample_size: int = DEFAULT_SAMPLE_SIZE) -> dict
     }
 
 
-def profile_to_rag_documents(profile: dict[str, Any], table_name: str = "product_sales") -> list[dict]:
+def profile_to_rag_documents(
+    profile: dict[str, Any],
+    table_name: str = "product_sales",
+) -> list[dict]:
     """Convert a CSV profile into placeholder-style RAG documents."""
     column_summaries = [
         f"{column['name']} ({column['inferred_type']})"
@@ -143,7 +145,7 @@ def main() -> None:
     try:
         profile = profile_csv(Path(sys.argv[1]))
     except (FileNotFoundError, ValueError) as error:
-        raise SystemExit(str(error))
+        raise SystemExit(str(error)) from error
 
     output = profile_to_rag_documents(profile) if "--rag-docs" in sys.argv else profile
     print(json.dumps(output, indent=2))

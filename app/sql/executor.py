@@ -8,6 +8,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 
+from app.sql.fallbacks import fallback_results_for_sql
 from app.sql.oracle_connection import connect_adb
 
 ConnectionFactory = Callable[[], Any]
@@ -51,6 +52,18 @@ class SafeSQLExecutor:
                 self._apply_timeout(connection)
                 columns, rows = self._execute_select(connection, sql, row_limit)
         except Exception as exc:  # pragma: no cover - exercised by live DB smoke tests
+            fallback_results = fallback_results_for_sql(sql)
+            if fallback_results:
+                return self._result(
+                    status="fallback_success",
+                    reason="Live SQL execution failed; returned cached fallback rows.",
+                    sql=sql,
+                    columns=fallback_results["columns"],
+                    rows=fallback_results["rows"],
+                    row_count=len(fallback_results["rows"]),
+                    row_limit=row_limit,
+                    error=str(exc),
+                )
             return self._result(
                 status="error",
                 reason="SQL execution failed.",

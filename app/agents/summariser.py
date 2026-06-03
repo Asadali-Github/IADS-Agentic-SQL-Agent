@@ -37,7 +37,7 @@ class SelectAIResultSummariser:
         query_results: dict[str, Any],
     ) -> dict[str, Any]:
         """Return a concise answer payload for the user."""
-        if query_results.get("status") != "success":
+        if query_results.get("status") not in {"success", "fallback_success"}:
             return self._result(
                 answer="I could not summarise the result because the SQL did not execute.",
                 provider="local",

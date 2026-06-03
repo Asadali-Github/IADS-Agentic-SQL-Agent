@@ -67,3 +67,18 @@ def test_generate_skips_when_profile_is_missing() -> None:
     assert result["sql"] is None
     assert result["error"] is None
     assert "SELECT_AI_PROFILE" in result["reasoning"]
+
+
+def test_generate_uses_known_fallback_when_select_ai_is_unavailable() -> None:
+    generator = OracleSelectAISQLGenerator(
+        profile_name="SALES_AGENT",
+        connection_factory=lambda: (_ for _ in ()).throw(RuntimeError("ADB unavailable")),
+    )
+
+    result = generator.generate("What were total sales by product category?")
+
+    assert result["provider"] == "local_fallback"
+    assert result["sql"] is not None
+    assert '"ADMIN"."PRODUCT_SALES_DATASET_FINAL"' in result["sql"]
+    assert 'SUM("REVENUE") AS total_sales' in result["sql"]
+    assert "ADB unavailable" in result["error"]

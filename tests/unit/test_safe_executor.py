@@ -89,3 +89,33 @@ def test_execute_skips_invalid_sql() -> None:
     assert result["status"] == "skipped"
     assert result["error"] is None
     assert "Only SELECT statements are allowed" in result["reason"]
+
+
+def test_execute_returns_known_fallback_rows_when_live_execution_fails() -> None:
+    executor = SafeSQLExecutor(
+        connection_factory=lambda: (_ for _ in ()).throw(RuntimeError("ADB unavailable")),
+        max_rows=100,
+    )
+
+    result = executor.execute(
+        {
+            "is_valid": True,
+            "safe_sql": (
+                'SELECT "CATEGORY" AS product_category, SUM("REVENUE") AS total_sales '
+                'FROM "ADMIN"."PRODUCT_SALES_DATASET_FINAL" '
+                'GROUP BY "CATEGORY" '
+                'ORDER BY total_sales DESC FETCH FIRST 100 ROWS ONLY'
+            ),
+            "reason": "SQL validation passed.",
+            "max_rows": 100,
+        }
+    )
+
+    assert result["status"] == "fallback_success"
+    assert result["columns"] == ["PRODUCT_CATEGORY", "TOTAL_SALES"]
+    assert result["rows"][0] == {
+        "PRODUCT_CATEGORY": "Electronics",
+        "TOTAL_SALES": 57485698.06,
+    }
+    assert result["row_count"] == 4
+    assert "ADB unavailable" in result["error"]

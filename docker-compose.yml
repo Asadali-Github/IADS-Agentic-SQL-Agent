@@ -19,7 +19,7 @@ services:
     env_file:
       - .env
     environment:
-      SQL_AGENT_API_URL: http://api:8000
+      API_URL: http://api:8000
     depends_on:
       - api
     command: streamlit run frontend/streamlit_app.py --server.address 0.0.0.0

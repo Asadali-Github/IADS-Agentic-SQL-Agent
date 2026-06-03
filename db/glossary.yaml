@@ -1,29 +1,80 @@
-# Business glossary — synonyms the agent maps to canonical column names.
-# Status: scaffold — fill in during the hackathon.
+# ============================================================================
+# glossary.yaml  (v2 - hierarchical)
 # Owner: Asad
 #
-# Format:
-#   canonical_term:
-#     description: what this term means in our business
-#     synonyms: [list, of, phrasings, users, might, say]
-#     maps_to: dotted column reference (table.column)
-#
-# Why this exists:
-#   Users say "revenue" or "sales" or "turnover" — all the same column.
-#   The agent uses this glossary as additional retrieval signal so the
-#   right column is picked regardless of the user's wording.
+# Business-term -> schema mapping for the product_sales dataset. Used as an extra
+# retrieval signal (see retrieval/glossary.py: resolve / expand_query_terms /
+# enrich_query_terms). All money is USD.
+# ============================================================================
+version: 2
 
-terms: []
+terms:
+  - canonical: revenue
+    maps_to: product_sales.revenue
+    type: measure
+    default_aggregation: SUM
+    variations: [sales, turnover, takings, income, gross sales, total sales, total spend]
+    notes: USD. = quantity * unit_price.
 
-# Example:
-#
-# terms:
-#   revenue:
-#     description: Total order value in pounds sterling, including VAT.
-#     synonyms: [sales, turnover, gross, income, takings]
-#     maps_to: orders.total_gbp
-#
-#   region:
-#     description: ISO country code where the customer is based.
-#     synonyms: [country, market, geography, territory]
-#     maps_to: customers.country_code
+  - canonical: profit
+    maps_to: product_sales.profit
+    type: measure
+    default_aggregation: SUM
+    variations: [margin, earnings, net profit, gross profit, profitability]
+
+  - canonical: profit margin
+    parent: profit
+    maps_to: product_sales.profit
+    type: measure
+    default_aggregation: AVG
+    variations: [margin percent, margin %, profitability ratio]
+    definition: profit divided by revenue, expressed as a percentage.
+
+  - canonical: units sold
+    maps_to: product_sales.quantity
+    type: measure
+    default_aggregation: SUM
+    variations: [quantity, units, volume, items sold, number of units]
+
+  - canonical: order_count
+    maps_to: product_sales
+    type: measure
+    default_aggregation: COUNT
+    variations: [number of orders, orders placed, how many orders, order volume, transactions]
+
+  - canonical: average order value
+    maps_to: product_sales.revenue
+    type: measure
+    default_aggregation: AVG
+    variations: [aov, average sale, average revenue per order, basket size]
+
+  - canonical: category
+    maps_to: product_sales.category
+    type: dimension
+    variations: [product category, product type, department]
+
+  - canonical: sub_category
+    maps_to: product_sales.sub_category
+    type: dimension
+    variations: [subcategory, sub category, product line]
+
+  - canonical: region
+    maps_to: product_sales.region
+    type: dimension
+    variations: [sales region, area, zone]
+
+  - canonical: product
+    maps_to: product_sales.product_name
+    type: dimension
+    variations: [item, product name, sku, article]
+
+  - canonical: customer
+    maps_to: product_sales.customer_name
+    type: dimension
+    variations: [client, buyer, shopper, customer name]
+
+  - canonical: last year
+    maps_to: product_sales.order_date
+    type: time_expression
+    variations: [prior year, previous year]
+    definition: The most recent complete calendar year in the data (2024).

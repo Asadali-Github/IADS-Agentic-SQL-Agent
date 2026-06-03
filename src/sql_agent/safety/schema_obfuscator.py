@@ -1,7 +1,8 @@
 """Schema obfuscator — swaps real table/column names for generic aliases.
 
 Owner: Asad
-Status: scaffold — implement during the hackathon.
+Status: EXTENSION POINT (not on the hot path). Privacy alias-masking of the
+schema before it reaches the LLM.
 
 Why this exists:
   Real schemas often contain sensitive names (e.g. `employee_salaries_2026`,
