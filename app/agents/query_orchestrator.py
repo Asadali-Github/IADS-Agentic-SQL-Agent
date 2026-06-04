@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from app.agents.action_decider import QueryActionDecider
+from app.agents.followup_suggester import FollowUpSuggester
 from app.agents.memory import ConversationMemory, MemoryAnswer, QuestionResolution
 from app.agents.planner import QueryPlanner
 from app.agents.reflector import QueryReflector
@@ -34,6 +35,7 @@ class QueryOrchestrator:
         planner: QueryPlanner | None = None,
         reflector: QueryReflector | None = None,
         action_decider: QueryActionDecider | None = None,
+        followup_suggester: FollowUpSuggester | None = None,
     ) -> None:
         self.retriever = retriever or OracleRAGRetriever()
         self.prompt_builder = prompt_builder or SQLPromptBuilder()
@@ -44,6 +46,7 @@ class QueryOrchestrator:
         self.planner = planner or QueryPlanner()
         self.reflector = reflector or QueryReflector()
         self.action_decider = action_decider or QueryActionDecider()
+        self.followup_suggester = followup_suggester or FollowUpSuggester()
         self.result_transformer = CachedResultTransformer(self.memory)
 
     def process_question(self, user_question: str) -> dict:
@@ -165,6 +168,7 @@ class QueryOrchestrator:
             "answer": answer,
             "pipeline_stage": self._pipeline_stage(generated_sql, sql_validation, query_results),
         }
+        response["suggestions"] = self.followup_suggester.suggest(response)
         self.memory.record(response)
         return response
 
@@ -324,6 +328,12 @@ class QueryOrchestrator:
 
     def _resolve_for_action(self, user_question: str, action_decision: dict) -> QuestionResolution:
         if action_decision["action"] == "MODIFY_PREVIOUS_SQL":
+            displayed_entity_resolution = self.memory.resolve_displayed_entity_reference(
+                user_question
+            )
+            if displayed_entity_resolution:
+                return displayed_entity_resolution
+
             resolution = self.memory.resolve(user_question)
             if resolution.is_follow_up:
                 return resolution

@@ -53,6 +53,10 @@ class QueryResponse(BaseModel):
     insights: list[str] = Field(default_factory=list, description="Optional insight bullets.")
     chart: dict[str, Any] | None = Field(default=None, description="Optional chart hint.")
     clarification: str | None = Field(default=None, description="Optional clarification prompt.")
+    suggestions: list[dict[str, str]] = Field(
+        default_factory=list,
+        description="Suggested follow-up questions.",
+    )
 
 
 class HealthResponse(BaseModel):

@@ -15,6 +15,7 @@ FOLLOW_UP_MARKERS = {
     "instead",
     "compare",
     "it",
+    "this",
     "that",
     "them",
     "these",
@@ -61,9 +62,22 @@ RESULT_REFERENCE_WORDS = {
     "row",
     "rows",
     "table",
+    "this",
     "them",
     "these",
     "those",
+}
+
+ENTITY_REFERENCE_COLUMNS = {
+    "product": ("PRODUCT_NAME", "PRODUCT", "PRODUCT_ID"),
+    "customer": ("CUSTOMER_NAME", "CUSTOMER", "CUSTOMER_ID"),
+    "region": ("REGION",),
+    "category": ("CATEGORY", "SUB_CATEGORY"),
+    "city": ("CITY",),
+    "state": ("STATE",),
+    "country": ("COUNTRY",),
+    "segment": ("SEGMENT", "CUSTOMER_SEGMENT"),
+    "order": ("ORDER_ID", "ORDER"),
 }
 
 LOWEST_MARKERS = {"bottom", "least", "lowest", "min", "minimum", "smallest", "worst"}
@@ -249,6 +263,66 @@ class ConversationMemory:
             source_turn=previous_turn,
         )
 
+    def resolve_displayed_entity_reference(self, user_question: str) -> QuestionResolution | None:
+        """Bind phrases like "this product" to the latest displayed single row."""
+        question = user_question.strip()
+        match = re.search(
+            r"\b(?P<phrase>(?:this|that|selected|same)\s+"
+            r"(?P<entity>product|customer|region|category|city|state|country|segment|order))\b",
+            question,
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            return None
+
+        latest_result = self.latest_result_turn()
+        if not latest_result:
+            return None
+
+        rows = list(latest_result.query_results.get("rows") or [])
+        if len(rows) != 1:
+            return None
+
+        row = rows[0]
+        entity = match.group("entity").lower()
+        column = self._entity_column(entity, row)
+        if not column:
+            return None
+
+        value = row.get(column)
+        if value in (None, ""):
+            return None
+
+        previous_successful = self.latest_successful_turn()
+        phrase = match.group("phrase")
+        display_row = "\n".join(
+            f"{column_name}: {self._format_value(column_value)}"
+            for column_name, column_value in row.items()
+        )
+        previous_context = ""
+        retrieval_parts = [question, column, str(value)]
+        if previous_successful:
+            previous_context = (
+                f"Previous successful question: {previous_successful.original_question}\n"
+                f"Previous SQL: {previous_successful.generated_sql.get('sql')}\n"
+            )
+            retrieval_parts.insert(0, previous_successful.original_question)
+
+        conversation_context = (
+            f"{previous_context}"
+            f"Latest displayed result row:\n{display_row}\n"
+            "Resolved entity reference:\n"
+            f'The phrase "{phrase}" means {column} = {value!r}.\n'
+            "Preserve this entity filter in the generated SQL."
+        )
+        return QuestionResolution(
+            original_question=question,
+            resolved_question=f"{question} ({phrase} means {column} = {value!r})",
+            retrieval_question=" ".join(retrieval_parts),
+            is_follow_up=True,
+            conversation_context=conversation_context,
+        )
+
     def _looks_like_follow_up(self, question: str) -> bool:
         normalized_question = question.lower().strip()
         words = normalized_question.split()
@@ -287,6 +361,19 @@ class ConversationMemory:
         if has_sort and (has_reference or has_sort_direction):
             return True
         return has_selector and (has_reference or len(words) <= 4)
+
+    def _entity_column(self, entity: str, row: dict[str, Any]) -> str | None:
+        columns = list(row.keys())
+        upper_to_original = {column.upper(): column for column in columns}
+        for candidate in ENTITY_REFERENCE_COLUMNS.get(entity, ()):
+            if candidate in upper_to_original:
+                return upper_to_original[candidate]
+
+        entity_token = entity.upper()
+        for column in columns:
+            if entity_token in column.upper():
+                return column
+        return None
 
     def _sort_referenced_rows(
         self,

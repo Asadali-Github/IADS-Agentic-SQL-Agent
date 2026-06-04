@@ -43,6 +43,7 @@ COPY = {
     "chart_bar": "Bar",
     "chart_line": "Line",
     "chart_pie": "Pie",
+    "suggestions_label": "Try next",
     "tables_used_label": "Tables used",
     "explanation_label": "Plain-English breakdown",
     "sql_label": "Generated SQL",
@@ -368,6 +369,8 @@ def _render_response(response: dict, render_key: str = "") -> None:
         _render_chart_options(response.get("chart"), dataframe, chart_key)
         st.dataframe(dataframe, use_container_width=True)
 
+    _render_suggestions(response.get("suggestions") or [], render_key)
+
     with st.expander(COPY["expander_label"]):
         if response.get("tables_used"):
             st.markdown(f"**{COPY['tables_used_label']}:** {', '.join(response['tables_used'])}")
@@ -377,6 +380,23 @@ def _render_response(response: dict, render_key: str = "") -> None:
         if response.get("sql"):
             st.markdown(f"**{COPY['sql_label']}**")
             st.code(response["sql"], language="sql")
+
+
+def _render_suggestions(suggestions: list[dict], render_key: str) -> None:
+    if not suggestions:
+        return
+
+    st.markdown(f"**{COPY['suggestions_label']}**")
+    columns = st.columns(min(len(suggestions), 4))
+    for index, suggestion in enumerate(suggestions):
+        label = suggestion.get("label") or suggestion.get("question")
+        question = suggestion.get("question")
+        if not label or not question:
+            continue
+        with columns[index % len(columns)]:
+            if st.button(label, key=f"suggestion_{render_key}_{index}", use_container_width=True):
+                st.session_state._suggested_question = question
+                st.rerun()
 
 
 def _render_welcome() -> None:
@@ -408,15 +428,12 @@ def _render_welcome() -> None:
 
 
 def _ask_question(question: str) -> None:
-    with st.chat_message("user"):
-        st.markdown(question)
-    with st.chat_message("assistant"):
-        with st.spinner("Thinking..."):
-            response = call_api(question, st.session_state.session_id)
-        if response.get("session_id"):
-            st.session_state.session_id = response["session_id"]
-        st.session_state.history.append({"question": question, "response": response})
-        _render_response(response, f"live_{len(st.session_state.history) - 1}")
+    with st.spinner("Thinking..."):
+        response = call_api(question, st.session_state.session_id)
+    if response.get("session_id"):
+        st.session_state.session_id = response["session_id"]
+    st.session_state.history.append({"question": question, "response": response})
+    st.rerun()
 
 
 def main() -> None:
@@ -435,7 +452,11 @@ def main() -> None:
         example_question = st.session_state._example_question
         del st.session_state._example_question
         _ask_question(example_question)
-        st.stop()
+
+    if getattr(st.session_state, "_suggested_question", None):
+        suggested_question = st.session_state._suggested_question
+        del st.session_state._suggested_question
+        _ask_question(suggested_question)
 
     for index, entry in enumerate(st.session_state.history):
         with st.chat_message("user"):

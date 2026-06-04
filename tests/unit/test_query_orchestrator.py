@@ -21,6 +21,13 @@ PROFIT_DOC = {
     "content": "Profit means total profit. Use SUM(Profit) by Category.",
 }
 
+CUSTOMER_DOC = {
+    "id": "schema_customer",
+    "title": "Customer Schema",
+    "type": "schema_knowledge",
+    "content": "Customer names are stored in CUSTOMER_NAME. Use customer filters for names.",
+}
+
 
 class FakeRetriever:
     def __init__(self, documents: list[dict]) -> None:
@@ -105,6 +112,29 @@ class FakeProductExecutor:
                 {"PRODUCT_NAME": "Apple iPhone 14", "TOTAL_REVENUE": 5740819.18},
             ],
             "row_count": 5,
+            "row_limit": 100,
+            "error": None,
+        }
+
+
+class FakeCustomerExecutor:
+    def __init__(self) -> None:
+        self.execution_count = 0
+
+    def execute(self, sql_validation: dict[str, Any]) -> dict[str, Any]:
+        self.execution_count += 1
+        return {
+            "status": "success",
+            "reason": "fake execution",
+            "sql": sql_validation.get("safe_sql"),
+            "columns": ["CUSTOMER_NAME"],
+            "rows": [
+                {"CUSTOMER_NAME": "Carol Adams"},
+                {"CUSTOMER_NAME": "Cameron Dixon"},
+                {"CUSTOMER_NAME": "Casey Dixon"},
+                {"CUSTOMER_NAME": "Catherine Reed"},
+            ],
+            "row_count": 4,
             "row_limit": 100,
             "error": None,
         }
@@ -386,6 +416,60 @@ def test_orchestrator_does_not_answer_bare_use_previous_result_after_clarificati
     assert "No previous result" in second_response["answer"]["answer"]
     assert len(generator.prompts) == 0
     assert executor.execution_count == 0
+
+
+def test_orchestrator_binds_this_product_to_latest_displayed_single_row() -> None:
+    retriever = FakeRetriever([REVENUE_DOC])
+    generator = FakeProductGenerator()
+    executor = FakeProductExecutor()
+    orchestrator = QueryOrchestrator(
+        retriever=retriever,
+        sql_generator=generator,
+        sql_executor=executor,
+        summariser=FakeSummariser(),
+    )
+
+    orchestrator.process_question("List the top five products by revenue")
+    lowest_response = orchestrator.process_question("what is the lowest of them")
+    compare_response = orchestrator.process_question(
+        "compare for this product in 2022, 2023 and 2024"
+    )
+
+    assert lowest_response["pipeline_stage"] == "answered_from_conversation_memory"
+    assert compare_response["action_decision"]["action"] == "MODIFY_PREVIOUS_SQL"
+    assert compare_response["pipeline_stage"] == "sql_executed_successfully"
+    assert "Apple iPhone 14" in compare_response["resolved_question"]
+    assert "PRODUCT_NAME" in generator.prompts[-1]
+    assert "Apple iPhone 14" in generator.prompts[-1]
+    assert "Resolved entity reference" in generator.prompts[-1]
+    assert executor.execution_count == 2
+
+
+def test_orchestrator_filters_previous_rows_by_text_without_requerying() -> None:
+    retriever = FakeRetriever([CUSTOMER_DOC])
+    generator = FakeGenerator()
+    executor = FakeCustomerExecutor()
+    orchestrator = QueryOrchestrator(
+        retriever=retriever,
+        sql_generator=generator,
+        sql_executor=executor,
+        summariser=FakeSummariser(),
+    )
+
+    first_response = orchestrator.process_question("Show customer names starting with ca")
+    filtered_response = orchestrator.process_question("which of them have dixon in their names")
+
+    assert first_response["pipeline_stage"] == "sql_executed_successfully"
+    assert filtered_response["action_decision"]["action"] == "TRANSFORM_PREVIOUS_RESULT"
+    assert filtered_response["pipeline_stage"] == "answered_from_conversation_memory"
+    assert filtered_response["retrieval_provider"] == "conversation_memory"
+    assert filtered_response["query_results"]["rows"] == [
+        {"CUSTOMER_NAME": "Cameron Dixon"},
+        {"CUSTOMER_NAME": "Casey Dixon"},
+    ]
+    assert len(generator.prompts) == 1
+    assert len(retriever.questions) == 1
+    assert executor.execution_count == 1
 
 
 def test_orchestrator_blocks_unsafe_mutation_intent_before_retrieval() -> None:

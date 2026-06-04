@@ -40,6 +40,17 @@ TRANSFORM_TERMS = {
     "top",
 }
 TRANSFORM_REFERENCES = {"above", "answer", "it", "result", "results", "them", "this", "those"}
+FILTER_REFERENCE_TERMS = {
+    "contain",
+    "containing",
+    "contains",
+    "has",
+    "have",
+    "include",
+    "includes",
+    "including",
+    "with",
+}
 MODIFY_STARTS = ("for ", "same but", "same for", "only ", "but for")
 MODIFY_PHRASES = ("what about", "how about")
 MODIFY_TERMS = {
@@ -194,6 +205,17 @@ class QueryActionDecider:
                 True,
                 False,
                 "User asked to transform or explain the previous output.",
+            )
+
+        if words.intersection(TRANSFORM_REFERENCES) and words.intersection(
+            FILTER_REFERENCE_TERMS
+        ):
+            return self._result(
+                "TRANSFORM_PREVIOUS_RESULT",
+                False,
+                True,
+                False,
+                "User asked to filter the previous output.",
             )
 
         if normalized.startswith(MODIFY_STARTS + MODIFY_PHRASES) or (

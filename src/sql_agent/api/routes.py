@@ -61,6 +61,7 @@ def _to_query_response(result: dict[str, Any], session_id: str) -> QueryResponse
         clarification=generated_sql.get("clarification_question"),
         insights=_insights(result),
         chart=_chart_hint(query_results),
+        suggestions=list(result.get("suggestions") or []),
     )
 
 

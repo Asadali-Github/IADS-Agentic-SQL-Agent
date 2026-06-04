@@ -29,6 +29,10 @@ class CachedResultTransformer:
             return None
 
         normalized = user_message.lower().strip()
+        filtered_answer = self._filter_rows_by_text(user_message, rows, previous_turn)
+        if filtered_answer:
+            return filtered_answer
+
         if any(term in normalized for term in ("explain", "summary", "summarize")):
             return MemoryAnswer(
                 answer=self._explain_rows(rows),
@@ -47,6 +51,63 @@ class CachedResultTransformer:
             )
 
         return None
+
+    def _filter_rows_by_text(
+        self,
+        user_message: str,
+        rows: list[dict[str, Any]],
+        previous_turn: Any,
+    ) -> MemoryAnswer | None:
+        term = self._text_filter_term(user_message)
+        if not term:
+            return None
+
+        text_columns = [
+            column
+            for column in rows[0]
+            if any(isinstance(row.get(column), str) for row in rows)
+        ]
+        if not text_columns:
+            return None
+
+        normalized_term = term.lower()
+        filtered_rows = [
+            row
+            for row in rows
+            if any(normalized_term in str(row.get(column, "")).lower() for column in text_columns)
+        ]
+        if filtered_rows:
+            answer = (
+                f"From the previous result, {len(filtered_rows)} row(s) contain "
+                f"{term!r}."
+            )
+        else:
+            answer = f"No rows in the previous result contain {term!r}."
+
+        return MemoryAnswer(
+            answer=answer,
+            rows=filtered_rows,
+            columns=list(rows[0].keys()),
+            source_turn=previous_turn,
+        )
+
+    def _text_filter_term(self, user_message: str) -> str | None:
+        normalized = user_message.lower().strip()
+        if not re.search(r"\b(?:it|them|these|those|result|results|answer|this)\b", normalized):
+            return None
+
+        match = re.search(
+            r"\b(?:have|has|contain|contains|containing|include|includes|including|with)\s+"
+            r"[\"']?([a-zA-Z0-9_-]+)[\"']?",
+            normalized,
+        )
+        if not match:
+            return None
+
+        term = match.group(1).strip()
+        if term in {"a", "an", "any", "the"}:
+            return None
+        return term
 
     def _explain_rows(self, rows: list[dict[str, Any]]) -> str:
         columns = list(rows[0].keys())
