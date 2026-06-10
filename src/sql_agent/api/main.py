@@ -1,4 +1,4 @@
-"""FastAPI app entry point for the Streamlit chatbot."""
+"""FastAPI app entry point for the Streamlit chatbot.
 
 Owner: Mehdi
 Status: implemented.

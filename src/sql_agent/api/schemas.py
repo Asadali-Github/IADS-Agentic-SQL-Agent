@@ -1,4 +1,4 @@
-"""Request and response models for the chatbot API."""
+"""Request and response models for the chatbot API.
 
 Owner: Mehdi
 Status: implemented.

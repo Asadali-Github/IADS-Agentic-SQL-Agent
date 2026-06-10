@@ -86,7 +86,7 @@ class SelectAIResultSummariser:
             error = "SELECT_AI_PROFILE is not set."
 
         if not answer:
-            answer = self._local_summary(rows)
+            answer = self._local_summary(user_question, rows)
 
         # Fallbacks for empty structured fields
         if not important_numbers and rows:

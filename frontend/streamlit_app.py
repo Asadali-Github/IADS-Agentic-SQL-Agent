@@ -7,12 +7,18 @@ Status: implemented.
 from __future__ import annotations
 
 import os
+import re
 
 import httpx
 import pandas as pd
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
+
+try:  # intelligent dashboard features (smart viz, follow-ups, in-memory transforms)
+    import intel_ui
+except Exception:  # pragma: no cover
+    from frontend import intel_ui  # type: ignore
 
 # ---------------------------------------------------------------------------
 # Config
@@ -719,6 +725,9 @@ def _init_state() -> None:
         "demo_mode": False,
         "db_tables": _PLACEHOLDER_TABLES,
         "uploaded_db": None,
+        "last_result_df": None,   # previous result rows, for in-memory follow-ups
+        "last_question": None,
+        "_queued_question": None,  # follow-up queued by a suggestion chip
     }
     for key, val in defaults.items():
         if key not in st.session_state:
@@ -760,6 +769,25 @@ def call_api(question: str, session_id: str | None) -> dict:
         )
     except Exception as exc:  # noqa: BLE001
         return _empty_error_response(str(exc), session_id)
+
+
+def _run_and_store(question: str, use_prev: bool) -> dict:
+    """Answer a question — transforming the previous result in memory when it is
+    a follow-up, else querying the database — and remember the new result so the
+    *next* follow-up can build on it."""
+    prev = st.session_state.get("last_result_df") if use_prev else None
+    resp = intel_ui.run_or_transform(question, st.session_state.session_id, prev, call_api)
+    if resp.get("session_id"):
+        st.session_state.session_id = resp["session_id"]
+    rows = resp.get("rows") or []
+    if rows:
+        try:
+            st.session_state.last_result_df = pd.DataFrame(rows)
+            st.session_state.last_question = question
+        except Exception:  # noqa: BLE001
+            pass
+    st.session_state.history.append({"question": question, "response": resp})
+    return resp
 
 # ---------------------------------------------------------------------------
 # Chart rendering
@@ -1081,12 +1109,15 @@ def _generate_data_summary(df: pd.DataFrame) -> str:
             </div>
         """
 
-    return f"""
-        <div class="data-summary-card">
-            <div class="ds-title">📊 Data Summary</div>
-            <div class="data-summary-stats">{stats_html}</div>
-        </div>
-    """
+    card = (
+        '<div class="data-summary-card">'
+        '<div class="ds-title">📊 Data Summary</div>'
+        f'<div class="data-summary-stats">{stats_html}</div>'
+        '</div>'
+    )
+    # Collapse the newlines/indentation between tags so Streamlit's markdown
+    # parser never treats the HTML as a code block (which would dump raw markup).
+    return re.sub(r">\s+<", "><", card).strip()
 
 # ---------------------------------------------------------------------------
 # Response renderer
@@ -1142,6 +1173,17 @@ def _render_response(resp: dict, key_suffix: str | None = None) -> None:
             f'border:1px solid #93c5fd;border-radius:20px;padding:0.3rem 0.9rem;'
             f'font-size:0.82rem;color:#1e40af;margin-bottom:0.6rem;">'
             f'🔄 <b>AI interpreted as:</b> {resolved}</div>',
+            unsafe_allow_html=True,
+        )
+
+    # -- In-memory transform badge (follow-up answered without a DB query) --
+    if resp.get("is_transform"):
+        ops = " · ".join(resp.get("transform_ops") or []) or "reshaped the previous result"
+        st.markdown(
+            f'<div style="display:inline-block;background:linear-gradient(90deg,#ecfdf5,#d1fae5);'
+            f'border:1px solid #6ee7b7;border-radius:20px;padding:0.3rem 0.9rem;'
+            f'font-size:0.82rem;color:#065f46;margin-bottom:0.6rem;">'
+            f'⚡ <b>Applied to your previous result</b> — no new database query &nbsp;·&nbsp; {ops}</div>',
             unsafe_allow_html=True,
         )
 
@@ -1237,15 +1279,12 @@ def _render_response(resp: dict, key_suffix: str | None = None) -> None:
         chips = "".join(f'<div class="insight-chip">📊 {ins}</div>' for ins in insights)
         st.markdown(f'<div class="insights-strip">{chips}</div>', unsafe_allow_html=True)
 
-    # -- Data tabs --
+    # -- Data tabs (Data first, then Visualization, then Export) --
     if rows:
         df = pd.DataFrame(rows)
-        tab1, tab2, tab3 = st.tabs(["📊 Visualization", "📋 Data", "📥 Export"])
+        tab_data, tab_viz, tab_export = st.tabs(["📋 Data", "📊 Visualization", "📥 Export"])
 
-        with tab1:
-            _render_chart_from_spec(resp.get("chart"), df)
-
-        with tab2:
+        with tab_data:
             numeric_cols = df.select_dtypes(include="number").columns
             c1, c2, c3 = st.columns(3)
             with c1:
@@ -1266,7 +1305,13 @@ def _render_response(resp: dict, key_suffix: str | None = None) -> None:
             st.markdown("<br>", unsafe_allow_html=True)
             st.dataframe(df, use_container_width=True)
 
-        with tab3:
+        with tab_viz:
+            try:
+                intel_ui.render_smart_viz(df, key_suffix or "cur")
+            except Exception:  # noqa: BLE001 - fall back to the legacy auto-chart
+                _render_chart_from_spec(resp.get("chart"), df)
+
+        with tab_export:
             csv = df.to_csv(index=False)
             st.download_button(
                 label="📥 Download as CSV",
@@ -1296,6 +1341,15 @@ def _render_response(resp: dict, key_suffix: str | None = None) -> None:
         if resp.get("sql"):
             st.markdown('<div class="section-title">Generated SQL</div>', unsafe_allow_html=True)
             st.code(resp["sql"], language="sql")
+
+    # -- Plain-English explanation + data-aware suggested next steps --
+    if resp.get("rows"):
+        _df_intel = pd.DataFrame(resp["rows"])
+        try:
+            intel_ui.render_explanation(_df_intel, resp.get("question", ""))
+            intel_ui.render_followups(_df_intel, resp.get("question", ""), key_suffix or "cur")
+        except Exception:  # noqa: BLE001 - intelligence is best-effort
+            pass
 
 # ---------------------------------------------------------------------------
 # Main
@@ -1460,17 +1514,22 @@ def main() -> None:
             unsafe_allow_html=True,
         )
 
-    # Handle example button click — append to history and rerun (avoid duplicate render)
+    # Handle example button click — a fresh database query
     if getattr(st.session_state, "_example_question", None):
         eq = st.session_state._example_question
         del st.session_state._example_question
         with st.status("🤖 Thinking...", expanded=True) as status:
             status.update(label="📚 Retrieving context & generating SQL...", state="running")
-            resp = call_api(eq, st.session_state.session_id)
+            _run_and_store(eq, use_prev=False)
             status.update(label="✅ Done!", state="complete", expanded=False)
-        if resp.get("session_id"):
-            st.session_state.session_id = resp["session_id"]
-        st.session_state.history.append({"question": eq, "response": resp})
+        st.rerun()
+
+    # Handle a follow-up queued by a suggestion chip — builds on the previous result
+    _queued = intel_ui.pop_queued_question()
+    if _queued:
+        with st.status("⚡ Updating your result...", expanded=True) as status:
+            _run_and_store(_queued, use_prev=True)
+            status.update(label="✅ Done!", state="complete", expanded=False)
         st.rerun()
 
     # Render conversation history as chat bubbles
@@ -1486,13 +1545,13 @@ def main() -> None:
         with st.chat_message("user"):
             st.markdown(question)
         with st.chat_message("assistant"):
+            # Show what the agent understood, and whether it will reuse the
+            # previous result, BEFORE it runs (query intent preview).
+            intel_ui.render_intent_preview(question, st.session_state.get("last_result_df"))
             with st.status("🤖 Thinking...", expanded=True) as status:
-                status.update(label="📚 Retrieving context & generating SQL...", state="running")
-                resp = call_api(question, st.session_state.session_id)
+                status.update(label="📚 Interpreting & resolving your question...", state="running")
+                resp = _run_and_store(question, use_prev=True)
                 status.update(label="✅ Done!", state="complete", expanded=False)
-            if resp.get("session_id"):
-                st.session_state.session_id = resp["session_id"]
-            st.session_state.history.append({"question": question, "response": resp})
             _render_response(resp, key_suffix="current")
 
 

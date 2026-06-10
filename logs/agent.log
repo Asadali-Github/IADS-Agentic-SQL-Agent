@@ -14,3 +14,8 @@
 2026-06-03 21:05:55,119 - iads_agent - INFO - monitoring_middleware:142 - Query completed (4556ms, status=200)
 2026-06-03 21:12:12,890 - iads_agent - INFO - monitoring_middleware:142 - Query completed (1343ms, status=200)
 2026-06-03 21:12:53,002 - iads_agent - INFO - monitoring_middleware:142 - Query completed (12069ms, status=200)
+2026-06-03 21:56:23,673 - iads_agent - INFO - monitoring_middleware:142 - Query completed (1481ms, status=200)
+2026-06-03 22:04:51,747 - iads_agent - INFO - monitoring_middleware:142 - Query completed (10097ms, status=200)
+2026-06-03 22:05:21,714 - iads_agent - INFO - monitoring_middleware:142 - Query completed (10932ms, status=200)
+2026-06-04 09:04:49,469 - iads_agent - INFO - monitoring_middleware:142 - Query completed (1887ms, status=200)
+2026-06-04 10:06:49,110 - iads_agent - INFO - monitoring_middleware:142 - Query completed (1515ms, status=200)
