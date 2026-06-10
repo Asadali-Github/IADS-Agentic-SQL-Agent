@@ -21,6 +21,13 @@ PROFIT_DOC = {
     "content": "Profit means total profit. Use SUM(Profit) by Category.",
 }
 
+CUSTOMER_DOC = {
+    "id": "schema_customer",
+    "title": "Customer Schema",
+    "type": "schema_knowledge",
+    "content": "Customer names are stored in CUSTOMER_NAME. Use customer filters for names.",
+}
+
 
 class FakeRetriever:
     def __init__(self, documents: list[dict]) -> None:
@@ -87,7 +94,11 @@ class FakeExecutor:
 
 
 class FakeProductExecutor:
+    def __init__(self) -> None:
+        self.execution_count = 0
+
     def execute(self, sql_validation: dict[str, Any]) -> dict[str, Any]:
+        self.execution_count += 1
         return {
             "status": "success",
             "reason": "fake execution",
@@ -101,6 +112,29 @@ class FakeProductExecutor:
                 {"PRODUCT_NAME": "Apple iPhone 14", "TOTAL_REVENUE": 5740819.18},
             ],
             "row_count": 5,
+            "row_limit": 100,
+            "error": None,
+        }
+
+
+class FakeCustomerExecutor:
+    def __init__(self) -> None:
+        self.execution_count = 0
+
+    def execute(self, sql_validation: dict[str, Any]) -> dict[str, Any]:
+        self.execution_count += 1
+        return {
+            "status": "success",
+            "reason": "fake execution",
+            "sql": sql_validation.get("safe_sql"),
+            "columns": ["CUSTOMER_NAME"],
+            "rows": [
+                {"CUSTOMER_NAME": "Carol Adams"},
+                {"CUSTOMER_NAME": "Cameron Dixon"},
+                {"CUSTOMER_NAME": "Casey Dixon"},
+                {"CUSTOMER_NAME": "Catherine Reed"},
+            ],
+            "row_count": 4,
             "row_limit": 100,
             "error": None,
         }

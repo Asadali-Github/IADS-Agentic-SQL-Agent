@@ -61,9 +61,22 @@ RESULT_REFERENCE_WORDS = {
     "row",
     "rows",
     "table",
+    "this",
     "them",
     "these",
     "those",
+}
+
+ENTITY_REFERENCE_COLUMNS = {
+    "product": ("PRODUCT_NAME", "PRODUCT", "PRODUCT_ID"),
+    "customer": ("CUSTOMER_NAME", "CUSTOMER", "CUSTOMER_ID"),
+    "region": ("REGION",),
+    "category": ("CATEGORY", "SUB_CATEGORY"),
+    "city": ("CITY",),
+    "state": ("STATE",),
+    "country": ("COUNTRY",),
+    "segment": ("SEGMENT", "CUSTOMER_SEGMENT"),
+    "order": ("ORDER_ID", "ORDER"),
 }
 
 LOWEST_MARKERS = {"bottom", "least", "lowest", "min", "minimum", "smallest", "worst"}
