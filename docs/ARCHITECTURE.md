@@ -40,7 +40,42 @@ We made three explicit trade-offs:
                             └──────────────────────────────────────────┘
 ```
 
-## The five-stage agent
+## Runtime composition (what actually runs)
+
+The diagram above is the conceptual design (ADR-001). In this submission the
+**live entrypoint is the `app/` package**, which composes those stages as one
+synchronous pass — fast, observable, and easy to demo. `src/sql_agent/` holds
+the typed stage *interfaces* (`agents/`), the production **Summariser**
+(`agents/summariser.py`, imported directly by the running pipeline), and the
+retrieval / safety / evaluation helpers. As-built flow:
+
+```
+Streamlit (frontend/streamlit_app.py)
+   |  HTTP
+FastAPI (app/main.py)  ->  FullPipeline.run()   [app/pipeline.py]
+  1. Multi-turn resolve + glossary enrich   [app/pipeline.py, retrieval/glossary.py]
+  2. RAG schema/KPI retrieval               [app/rag/retriever.py]      -- OCI GenAI embeddings / 23ai Vector*
+  3. Text-to-SQL                            [app/sql/generator.py]      -- OCI Select AI -> OCI GenAI (Cohere)
+  4. Validate: single read-only SELECT      [app/sql/validator.py, safety/sql_guard*]
+  5. Execute                                [evaluation/local_db.py offline | OCI Autonomous DB live]
+  6. If 0 rows -> VECTOR ROW-FALLBACK        [retrieval/row_fallback.py]  -- nearest real rows ("similar results")
+  7. Summarise + insights + chart + confidence  [agents/summariser.py]
+```
+
+\* `23ai Vector` and direct GenAI embeddings are the pluggable production
+backends; offline the same interfaces are served by an in-memory lexical index
+and lexical row-similarity, so the demo runs with no cloud dependency. Raw seed
+CSVs stage through **OCI Object Storage** before loading into Autonomous Database.
+
+Two behaviours make this an **agent**, not a one-shot translator:
+
+- **Multi-turn context** — a follow-up like "...and by category?" is resolved
+  against the previous question within the session, not answered blind.
+- **Vector/similarity decisioning** — when an exact match does not exist, the
+  agent returns the nearest real rows flagged as *approximate* instead of "no
+  results", directly satisfying the brief's "similar results" requirement.
+
+## The agent stages
 
 Each stage has a single responsibility and a typed input/output contract.
 
@@ -103,10 +138,26 @@ Capped at 3 retries to prevent runaway loops.
 
 ### 7. Summariser
 
-**Input:** question + SQL + result rows
-**Output:** natural-language summary
+**Input:** question + SQL + result rows (+ retrieved schema)
+**Output:** `AnswerSummary` — one-sentence answer, 2–4 plain-English bullets, and the tables used
 
-Produces a one-sentence answer plus a brief explanation. Returned alongside the raw table and SQL so the user can verify.
+Turns rows back into language. Two design choices make it demo-safe:
+
+- **Hybrid summarisation.** Large result sets are never dumped into the prompt.
+  We compute per-column aggregates deterministically in code (row count, dtypes,
+  min/max/sum/mean, distinct, top values) and feed those to the model alongside a
+  small row sample, with an explicit instruction to trust the computed numbers
+  over its own arithmetic. A configurable `max_preview_rows` caps how many raw
+  rows ever reach the prompt — preventing token bloat and hallucinated maths on
+  500-row results.
+- **Always returns something.** The LLM client is injected and optional; with no
+  client (offline, rate-limited, or under test) the stage falls back to a
+  deterministic template summary, so the pipeline never returns nothing.
+
+All user-facing and logged output passes through the PII filter (`safety/`), and
+token usage is metered by `llm/token_counter.py`. The explanation panel uses a
+separate prompt (`prompts/sql_explanation.md`) so the "how it works" text stays
+in business language with no SQL jargon.
 
 ## Core design choices (ADRs)
 
@@ -119,15 +170,23 @@ Architecture Decision Records live in [`decisions/`](decisions/):
 ## Project structure
 
 ```
-src/sql_agent/
-├── config/           # Typed settings — Pydantic Settings reads .env
-├── core/             # Domain models (Pydantic), exceptions, logging
-├── llm/              # OCI GenAI client wrapper + prompt loader
-├── retrieval/        # Embeddings + vector store + schema retriever
-├── database/         # Connection pool + safe executor + introspection
-├── agents/           # Each stage; orchestrator runs the pipeline
-├── safety/           # SQL guard + PII filter
-└── api/              # FastAPI app + routes
+app/                   # >>> LIVE RUNTIME <<<
+├── main.py            # FastAPI entrypoint
+├── pipeline.py        # FullPipeline.run() — composes the stages (single pass)
+├── rag/               # RAG retrieval + embeddings over schema/KPI docs
+├── sql/               # Select AI text-to-SQL, prompt builder, validator
+└── agents/            # request orchestration
+
+frontend/              # Streamlit chat UI (insights, chart, confidence, clarify)
+
+src/sql_agent/         # typed interfaces + shared libraries
+├── core/              # Domain models (Pydantic), exceptions
+├── agents/            # stage interface specs (ADR-001) + production Summariser
+├── retrieval/         # glossary, row_fallback (vector fallback), vector-store iface
+├── safety/            # PII filter (+ SQL-guard / obfuscator interfaces)
+└── api/               # FastAPI app + typed schemas
+
+evaluation/            # benchmark harness, metrics, offline LocalDB (DuckDB)
 ```
 
 **Boundaries:**

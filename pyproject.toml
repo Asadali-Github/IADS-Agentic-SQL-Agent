@@ -23,6 +23,7 @@ dependencies = [
     "numpy>=1.26",
     "structlog>=24.1",
     "sqlglot>=23.0",
+    "duckdb>=0.10",
 ]
 
 [project.optional-dependencies]

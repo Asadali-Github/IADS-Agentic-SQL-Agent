@@ -51,66 +51,28 @@ class QueryOrchestrator:
 
     def process_question(self, user_question: str) -> dict:
         """Run the RAG-to-Select-AI-to-results pipeline for a user question."""
-        intent_assessment = assess_question_intent_safety(user_question)
-        if not intent_assessment["is_supported"]:
-            response = self._unsupported_response(
-                user_question=user_question,
-                resolved_question=user_question.strip(),
-                retrieved_documents=[],
-                support_assessment=intent_assessment,
-                retrieval_provider="not_run_safety_guard",
-                action_decision=None,
+        previous_turn = self.memory.latest_successful_turn()
+        previous_question = previous_turn.original_question if previous_turn else None
+        
+        is_related = False
+        resolved_question = user_question.strip()
+        
+        if previous_question:
+            from app.agents.followups import classify_and_rewrite_live
+            is_related, resolved_question = classify_and_rewrite_live(
+                resolved_question,
+                previous_question,
+                getattr(self.sql_generator, "profile_name", None),
+                getattr(self.sql_generator, "connection_factory", None),
             )
-            self.memory.record(response)
-            return response
+            
+        if not is_related and previous_question:
+            # Reset conversation memory to avoid contamination from prior queries
+            self.memory.turns = []
+            resolved_question = user_question.strip()
 
-        action_decision = self.action_decider.decide_next_action(
-            user_question,
-            self._conversation_state(),
-        )
-        if action_decision["action"] == "ASK_CLARIFICATION":
-            response = self._clarification_response(user_question, action_decision)
-            self.memory.record(response)
-            return response
-
-        if action_decision["action"] == "TRANSFORM_PREVIOUS_RESULT":
-            memory_answer = self.result_transformer.transform(user_question)
-            if not memory_answer:
-                response = self._clarification_response(
-                    user_question,
-                    {
-                        **action_decision,
-                        "reason": (
-                            "I could not safely transform the previous result. "
-                            "Please specify the column, filter, or format you want."
-                        ),
-                    },
-                )
-                self.memory.record(response)
-                return response
-
-            resolution = QuestionResolution(
-                original_question=user_question.strip(),
-                resolved_question=user_question.strip(),
-                retrieval_question=user_question.strip(),
-                is_follow_up=True,
-            )
-            response = self._memory_answer_response(
-                user_question,
-                resolution,
-                memory_answer,
-                action_decision,
-            )
-            self.memory.record(response)
-            return response
-
-        resolution = self._resolve_for_action(user_question, action_decision)
-        resolved_question = resolution.resolved_question
-        retrieved_documents = self.retriever.retrieve(resolution.retrieval_question)
-        support_assessment = assess_question_support(
-            resolution.support_question,
-            retrieved_documents,
-        )
+        retrieved_documents = self.retriever.retrieve(resolved_question)
+        support_assessment = assess_question_support(resolved_question, retrieved_documents)
         if not support_assessment["is_supported"]:
             response = self._unsupported_response(
                 user_question=user_question,

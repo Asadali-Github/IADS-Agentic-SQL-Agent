@@ -1,180 +1,167 @@
-"""API routes for the Streamlit chatbot."""
+"""API routes: /query, /health.
+
+Owner: Mehdi
+Status: implemented — stub orchestrator until Omar wires the real one.
+"""
 
 from __future__ import annotations
 
 import uuid
-from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
-from app.agents.query_orchestrator import QueryOrchestrator
 from sql_agent.api.schemas import HealthResponse, QueryRequest, QueryResponse
+from sql_agent.core.exceptions import (
+    DatabaseError,
+    LLMError,
+    QueryParseError,
+    RateLimitError,
+    ServiceUnavailableError,
+    TimeoutError,
+)
 
 router = APIRouter()
 
-_SESSION_ORCHESTRATORS: dict[str, QueryOrchestrator] = {}
+# Integration (Asad): the production selector picks the LIVE Oracle backend
+# (QueryOrchestrator: ADB + Select AI + 23ai vector) when OCI is configured, and
+# the offline DuckDB pipeline otherwise. Imported defensively so the API still
+# boots (falling back to the stub) if optional deps are missing.
+try:  # pragma: no cover - import guarded
+    from app.production_pipeline import answer_question as _pipeline_answer
+except Exception:  # noqa: BLE001
+    try:
+        from app.pipeline import answer_question as _pipeline_answer
+    except Exception:  # noqa: BLE001
+        _pipeline_answer = None
 
+
+def _pipeline_query(question: str, session_id: str) -> QueryResponse:
+    """Run the full pipeline and map its result onto QueryResponse."""
+    r = _pipeline_answer(question, session_id)  # type: ignore[misc]
+    return QueryResponse(
+        answer=r.get("answer", ""),
+        resolved_question=r.get("resolved_question", question),
+        important_numbers=r.get("important_numbers", []),
+        trends_anomalies=r.get("trends_anomalies", []),
+        final_takeaway=r.get("final_takeaway"),
+        rows=r.get("rows", []),
+        sql=r.get("sql", ""),
+        explanation=r.get("explanation", ""),
+        tables_used=r.get("tables_used", []),
+        insights=r.get("insights", []),
+        chart=r.get("chart"),
+        clarification=r.get("clarification"),
+        confidence=float(r.get("confidence", 1.0) or 0.0),
+        approximate_match=bool(r.get("approximate_match", False)),
+        error=r.get("error"),
+        session_id=session_id,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Stub orchestrator — replace this one call with the real orchestrator once
+# Omar's implementation is ready.
+# ---------------------------------------------------------------------------
+
+def _stub_orchestrator(question: str, session_id: str) -> QueryResponse:
+    """Returns a hardcoded response so the UI can be built and tested now."""
+    return QueryResponse(
+        answer=f'(Stub) You asked: "{question}"',
+        rows=[
+            {"region": "UK", "total_sales": 4200000, "category": "Electronics"},
+            {"region": "UK", "total_sales": 3100000, "category": "Clothing"},
+            {"region": "UK", "total_sales": 1800000, "category": "Food"},
+        ],
+        sql="SELECT region, category, SUM(sales) AS total_sales\nFROM orders\nWHERE region = 'UK'\nGROUP BY region, category\nORDER BY total_sales DESC;",
+        explanation="I filtered the orders table to the UK region and grouped the results by product category, summing the sales column.",
+        insights=["Electronics leads with £4.2M (46% of total).", "Food is lowest at £1.8M."],
+        chart={"type": "bar", "x": "category", "y": "total_sales", "title": "Sales by Category"},
+        tables_used=["orders"],
+        confidence=0.92,
+        approximate_match=False,
+        error=None,
+        session_id=session_id,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
 
 @router.post("/query", response_model=QueryResponse)
 def query(request: QueryRequest) -> QueryResponse:
-    """Accept a natural-language question and return a structured chat response."""
+    """Accept a natural-language question and return a structured answer."""
     session_id = request.session_id or str(uuid.uuid4())
-    orchestrator = _SESSION_ORCHESTRATORS.setdefault(session_id, QueryOrchestrator())
-
     try:
-        result = orchestrator.process_question(request.question)
-    except Exception as exc:
+        if _pipeline_answer is not None:
+            return _pipeline_query(request.question, session_id)
+        return _stub_orchestrator(request.question, session_id)
+    except QueryParseError:
         return QueryResponse(
             answer="",
-            error=f"Something went wrong while answering the question: {exc}",
+            error="I understood your question, but our current system doesn't track that. Try asking about sales, orders, customers, or products.",
             session_id=session_id,
-            confidence=0.0,
         )
-
-    return _to_query_response(result, session_id)
+    except TimeoutError:
+        return QueryResponse(
+            answer="",
+            error="Your question needed more time than I have available. Try a simpler question.",
+            session_id=session_id,
+        )
+    except DatabaseError:
+        return QueryResponse(
+            answer="",
+            error="There was a problem querying the database. Please try again in a moment.",
+            session_id=session_id,
+        )
+    except LLMError:
+        return QueryResponse(
+            answer="",
+            error="The AI service returned an error. Please try again.",
+            session_id=session_id,
+        )
+    except RateLimitError:
+        return QueryResponse(
+            answer="",
+            error="Too many requests. Please wait a moment and try again.",
+            session_id=session_id,
+        )
+    except ServiceUnavailableError:
+        return QueryResponse(
+            answer="",
+            error="The service is temporarily unavailable. Please try again shortly.",
+            session_id=session_id,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return QueryResponse(
+            answer="",
+            error=f"Something went wrong: {exc}",
+            session_id=session_id,
+        )
 
 
 @router.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
-    """Liveness check used by the Streamlit sidebar."""
-    return HealthResponse()
+    """Liveness check — also probes the database connection."""
+    db_status = "disconnected"
+    try:
+        # Try the live Oracle connection first
+        from app.sql.oracle_connection import get_connection
+        conn = get_connection()
+        if conn is not None:
+            db_status = "connected"
+    except Exception:  # noqa: BLE001
+        pass
 
+    if db_status == "disconnected":
+        try:
+            # Fall back: check if offline DuckDB is available
+            from evaluation.local_db import get_local_db
+            db = get_local_db()
+            result = db.execute("SELECT 1")
+            if result.success:
+                db_status = "connected"
+        except Exception:  # noqa: BLE001
+            pass
 
-def _to_query_response(result: dict[str, Any], session_id: str) -> QueryResponse:
-    answer_payload = result.get("answer") or {}
-    generated_sql = result.get("generated_sql") or {}
-    sql_validation = result.get("sql_validation") or {}
-    query_results = result.get("query_results") or {}
-    error = _friendly_error(answer_payload, generated_sql, sql_validation, query_results)
-    confidence = _confidence(result)
-
-    return QueryResponse(
-        answer=str(answer_payload.get("answer") or ""),
-        rows=list(query_results.get("rows") or []),
-        sql=str(generated_sql.get("sql") or sql_validation.get("safe_sql") or ""),
-        explanation=_explanation(result),
-        tables_used=_tables_used(result),
-        confidence=confidence,
-        approximate_match=query_results.get("status") == "fallback_success",
-        error=error,
-        session_id=session_id,
-        clarification=generated_sql.get("clarification_question"),
-        insights=_insights(result),
-        chart=_chart_hint(query_results),
-        suggestions=list(result.get("suggestions") or []),
-    )
-
-
-def _friendly_error(
-    answer_payload: dict[str, Any],
-    generated_sql: dict[str, Any],
-    sql_validation: dict[str, Any],
-    query_results: dict[str, Any],
-) -> str | None:
-    if generated_sql.get("provider") == "local_no_answer" and answer_payload.get("answer"):
-        return None
-    if generated_sql.get("provider") == "action_decider" and generated_sql.get(
-        "clarification_question"
-    ):
-        return None
-    if answer_payload.get("error") and not answer_payload.get("answer"):
-        return str(answer_payload["error"])
-    if generated_sql.get("error"):
-        return str(generated_sql["error"])
-    if not sql_validation.get("is_valid", True):
-        return str(sql_validation.get("reason") or "The generated SQL was not safe to run.")
-    if query_results.get("status") == "error":
-        return str(
-            query_results.get("reason")
-            or query_results.get("error")
-            or "SQL execution failed."
-        )
-    return None
-
-
-def _confidence(result: dict[str, Any]) -> float:
-    support_assessment = result.get("support_assessment") or {}
-    query_results = result.get("query_results") or {}
-    generated_sql = result.get("generated_sql") or {}
-
-    if not support_assessment.get("is_supported", True):
-        return 0.2
-    if generated_sql.get("error"):
-        return 0.35
-    if query_results.get("status") == "fallback_success":
-        return 0.72
-    if query_results.get("status") == "success":
-        return 0.92
-    return 0.6
-
-
-def _explanation(result: dict[str, Any]) -> str:
-    parts: list[str] = []
-
-    resolved_question = result.get("resolved_question")
-    original_question = result.get("original_question")
-    if resolved_question and resolved_question != original_question:
-        parts.append(f"Resolved follow-up question:\n{resolved_question}")
-
-    retrieval_provider = result.get("retrieval_provider")
-    if retrieval_provider:
-        parts.append(f"Retrieval provider: {retrieval_provider}")
-
-    support_assessment = result.get("support_assessment") or {}
-    if support_assessment.get("reason"):
-        parts.append(f"Support check: {support_assessment['reason']}")
-
-    generated_sql = result.get("generated_sql") or {}
-    if generated_sql.get("reasoning"):
-        parts.append(f"SQL reasoning: {generated_sql['reasoning']}")
-
-    sql_validation = result.get("sql_validation") or {}
-    if sql_validation.get("reason"):
-        parts.append(f"Validation: {sql_validation['reason']}")
-
-    query_results = result.get("query_results") or {}
-    if query_results.get("reason"):
-        parts.append(f"Execution: {query_results['reason']}")
-
-    answer_payload = result.get("answer") or {}
-    if answer_payload.get("provider"):
-        parts.append(f"Answer provider: {answer_payload['provider']}")
-
-    return "\n\n".join(parts)
-
-
-def _tables_used(result: dict[str, Any]) -> list[str]:
-    tables: list[str] = []
-    for document in result.get("retrieved_documents") or []:
-        title = document.get("title")
-        doc_type = document.get("type")
-        if title and (doc_type == "table" or not tables):
-            tables.append(str(title))
-    return list(dict.fromkeys(tables))
-
-
-def _insights(result: dict[str, Any]) -> list[str]:
-    query_results = result.get("query_results") or {}
-    rows = query_results.get("rows") or []
-    row_count = query_results.get("row_count", len(rows))
-    if not rows:
-        return []
-    return [f"Returned {row_count} row{'s' if row_count != 1 else ''}."]
-
-
-def _chart_hint(query_results: dict[str, Any]) -> dict[str, Any] | None:
-    rows = query_results.get("rows") or []
-    if not rows:
-        return None
-
-    first_row = rows[0]
-    numeric_columns = [
-        key
-        for key, value in first_row.items()
-        if isinstance(value, int | float) and not isinstance(value, bool)
-    ]
-    label_columns = [key for key in first_row if key not in numeric_columns]
-
-    if numeric_columns and label_columns:
-        return {"type": "bar", "x": label_columns[0], "y": numeric_columns[0]}
-    return None
+    return HealthResponse(database=db_status)

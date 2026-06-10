@@ -1,7 +1,8 @@
 """Demo fallback cache — serves canned results when the live DB is unreachable.
 
 Owner: Hassan + Asad
-Status: scaffold — implement during the hackathon.
+Status: EXTENSION POINT. Offline demo answers are served from
+`evaluation/datasets/demo_cache.json` today; this is the in-DB cache target.
 
 Why this exists:
   Live network connections can drop or rate-limit mid-demo. When the

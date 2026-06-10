@@ -1,10 +1,8 @@
 """Unit tests for prompt loader.
 
 Owner: Asad
-Status: placeholder — implement during the hackathon.
+Status: RESERVED module. Prompt assembly is exercised end-to-end by the
+pipeline tests; this is the slot for focused unit tests of
+`app/sql/prompt_builder.py`.
 
-TODO:
-- Define the public interface here
-- Implement the logic
-- Write tests in tests/unit/test_test_prompts.py
 """

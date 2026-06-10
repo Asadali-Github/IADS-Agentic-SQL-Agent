@@ -1,7 +1,8 @@
 """Schema-aware RAG — finds relevant tables for a question.
 
 Owner: Marthi
-Status: placeholder — implement during the hackathon.
+Status: INTERFACE SPEC. Realized in `app/rag/retriever.py` (RAG over the
+schema and KPI descriptions).
 
 TODO:
 - Define the public interface here

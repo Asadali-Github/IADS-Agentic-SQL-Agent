@@ -1,7 +1,8 @@
 """Multi-model router — pick a cheaper/faster model for simple queries.
 
 Owner: Omar
-Status: scaffold — implement during the hackathon.
+Status: EXTENSION POINT (not on the hot path). Cost/latency model-tier
+routing; the running pipeline uses a single model tier today.
 
 Why this exists:
   Not every question needs the heaviest model. "How many items are in stock?"
